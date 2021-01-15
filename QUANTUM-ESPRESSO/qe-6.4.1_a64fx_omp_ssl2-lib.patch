@@ -1,0 +1,65 @@
+diff -uprN q-e-qe-6.4.1/atomic/src/dvex.f90 q-e-qe-6.4.1/atomic/src/dvex.f90
+--- q-e-qe-6.4.1/atomic/src/dvex.f90	2019-04-08 21:09:54.000000000 +0900
++++ q-e-qe-6.4.1/atomic/src/dvex.f90	2021-02-09 20:36:13.690489879 +0900
+@@ -52,7 +52,9 @@ subroutine dvex(nu,dvy)
+ !      write (*,*) mu, oc(mu), ocs
+       if ( mu == nu ) then
+          doc = 0.d0
+-         if(AND((l1 /= 0), (ocs > 0.d0))) then
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++         if((l1 /= 0) .and. (ocs > 0.d0)) then
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+            i = int(ocs)
+            doc = (i*(2.d0*ocs-i-1.d0)/(half-1.d0) - ocs*ocs/half) * half/ocs
+          end if
+diff -uprN q-e-qe-6.4.1/GWW/pw4gww/mp_wave_parallel.f90 q-e-qe-6.4.1/GWW/pw4gww/mp_wave_parallel.f90
+--- q-e-qe-6.4.1/GWW/pw4gww/mp_wave_parallel.f90	2019-04-08 21:09:54.000000000 +0900
++++ q-e-qe-6.4.1/GWW/pw4gww/mp_wave_parallel.f90	2021-02-09 20:32:20.144910785 +0900
+@@ -282,7 +282,9 @@
+       IMPLICIT NONE
+ 
+       INTEGER, INTENT(in) :: npw1,npw2,nbands
+-      COMPLEX(DP), INTENT(OUT) :: pw1(npw1,nbands),pw2(npw2,nbands)
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++      COMPLEX(DP), INTENT(INOUT) :: pw1(npw1,nbands),pw2(npw2,nbands)
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+       INTEGER, INTENT(IN) :: mpime,  root, nproc
+       INTEGER, INTENT(IN) :: comm    ! communicator
+       INTEGER, INTENT(IN) :: ig_l2g1(ngwl1),ig_l2g2(ngwl2)
+diff -uprN q-e-qe-6.4.1/install/extlibs_makefile q-e-qe-6.4.1/install/extlibs_makefile
+--- q-e-qe-6.4.1/install/extlibs_makefile	2019-04-08 21:09:54.000000000 +0900
++++ q-e-qe-6.4.1/install/extlibs_makefile	2021-02-09 20:40:19.908124724 +0900
+@@ -83,14 +83,17 @@ libiotk:
+ 	# middle instruction needed for windows
+ 	cd ../; rm -rf iotk ; ln -fs S3DE/iotk iotk
+ 
++#  Modify  February 2, 2021  FUJITSU LIMITED  >>
+ libfox:
+ 	echo $(HOST)
+ 	if test ! -d ../FoX; then \
+         mkdir ../FoX; \
+ 	(gzip -dc ../archive/fox.tgz | (cd ../FoX; tar -xvf -)); \
+-	cd ../FoX/fox/; export FC=$(F90); export FCFLAGS="$(FOX_FLAGS)"; \
+-	./configure --prefix=$(TOPDIR)/FoX ;\
++	cd ../FoX/fox/; export FC=$(F90); export FCFLAGS="$(FOX_FLAGS) -Kocl -Kregion_extension -Knolargepage -Kfast -Kopenmp -Koptmsg=2 -Nlst=t"; \
++	export LD_LIBS="-Kopenmp"; \
++	./configure --prefix=$(TOPDIR)/FoX --host=x86_64-unknown-linux-gnu;\
+ 	$(MAKE) install; cd ../; rm -fr fox;fi
++#  Modify  February 2, 2021  FUJITSU LIMITED  <<
+ # ELPA
+ libelpa : libelpa_$(ELPA_LIBS_SWITCH)
+ 
+diff -uprN q-e-qe-6.4.1/PHonon/Gamma/dgradcorr.f90 q-e-qe-6.4.1/PHonon/Gamma/dgradcorr.f90
+--- q-e-qe-6.4.1/PHonon/Gamma/dgradcorr.f90	2019-04-08 21:09:54.000000000 +0900
++++ q-e-qe-6.4.1/PHonon/Gamma/dgradcorr.f90	2021-02-09 20:34:43.141257444 +0900
+@@ -22,7 +22,9 @@ SUBROUTINE dgradcor1 (dfft, rho, grho, d
+ 
+   REAL(DP), INTENT(IN) :: rho (dfft%nnr, nspin), grho (3, dfft%nnr, nspin), &
+        g (3, dfft%ngm)
+-  REAL(DP), INTENT(OUT):: drho (dfft%nnr,nspin),&
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++  REAL(DP), INTENT(INOUT):: drho (dfft%nnr,nspin),&
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        dvxc_rr(dfft%nnr, nspin, nspin), dvxc_sr (dfft%nnr, nspin, nspin), &
+        dvxc_ss (dfft%nnr,nspin, nspin), dvxc_s (dfft%nnr, nspin, nspin)
+   REAL(DP), INTENT(INOUT) ::  dvxc (dfft%nnr, nspin)

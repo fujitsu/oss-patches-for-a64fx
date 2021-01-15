@@ -1,0 +1,284 @@
+diff -uprN q-e-qe-6.4.1/FFTXlib/fft_scalar.FFTW3.f90 q-e-qe-6.4.1/FFTXlib/fft_scalar.FFTW3.f90
+--- q-e-qe-6.4.1/FFTXlib/fft_scalar.FFTW3.f90	2019-04-08 21:09:54.000000000 +0900
++++ q-e-qe-6.4.1/FFTXlib/fft_scalar.FFTW3.f90	2021-02-09 21:46:59.587950365 +0900
+@@ -35,6 +35,15 @@
+ #else
+ #include "fftw3.f"
+ #endif
++!  Add  February 2, 2021  FUJITSU LIMITED  >>
++#if defined(__FFTW3_PLANFLAG_MEASURE)
++#define __PLANFLAG FFTW_MEASURE
++#elif defined(__FFTW3_PLANFLAG_PATIENT)
++#define __PLANFLAG FFTW_PATIENT
++#else
++#undef __PLANFLAG
++#endif
++!  Add  February 2, 2021  FUJITSU LIMITED  <<
+ 
+ !=----------------------------------------------------------------------=!
+    CONTAINS
+@@ -142,6 +151,13 @@
+      END SUBROUTINE lookup
+ 
+      SUBROUTINE init_plan()
++!  Add  February 2, 2021  FUJITSU LIMITED  >>
++#if defined(__PLANFLAG)
++       COMPLEX(DP), ALLOCATABLE :: wc(:), wcout(:)
++       ALLOCATE( wc( SIZE(c) ) )
++       ALLOCATE( wcout( SIZE(cout) ) )
++#endif
++!  Add  February 2, 2021  FUJITSU LIMITED  <<
+ #if defined(_OPENMP)
+        CALL dfftw_cleanup_threads() 
+        void = fftw_init_threads()
+@@ -151,11 +167,25 @@
+        IF( C_ASSOCIATED(fw_planz( icurrent)) ) CALL dfftw_destroy_plan( fw_planz( icurrent) )
+        IF( C_ASSOCIATED(bw_planz( icurrent)) ) CALL dfftw_destroy_plan( bw_planz( icurrent) )
+        idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( fw_planz( icurrent), 1, nz, nsl, c, &
+             (/SIZE(c)/), 1, ldz, cout, (/SIZE(cout)/), 1, ldz, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( fw_planz( icurrent), 1, nz, nsl, wc, &
++            (/SIZE(wc)/), 1, ldz, wcout, (/SIZE(wcout)/), 1, ldz, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir = 1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( bw_planz( icurrent), 1, nz, nsl, c, &
+             (/SIZE(c)/), 1, ldz, cout, (/SIZE(cout)/), 1, ldz, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( bw_planz( icurrent), 1, nz, nsl, wc, &
++            (/SIZE(wc)/), 1, ldz, wcout, (/SIZE(wcout)/), 1, ldz, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+ 
+        zdims(1,icurrent) = nz; zdims(2,icurrent) = nsl; zdims(3,icurrent) = ldz;
+        ip = icurrent
+@@ -301,6 +331,12 @@
+      END SUBROUTINE lookup
+ 
+      SUBROUTINE init_plan()
++!  Add  February 2, 2021  FUJITSU LIMITED  >>
++#if defined(__PLANFLAG)
++       COMPLEX(DP), ALLOCATABLE :: wr(:)
++       ALLOCATE( wr( SIZE(r) ) )
++#endif
++!  Add  February 2, 2021  FUJITSU LIMITED  <<
+ 
+ #if defined(_OPENMP)
+        CALL dfftw_cleanup_threads() 
+@@ -312,35 +348,83 @@
+           IF( C_ASSOCIATED(fw_plan(2,icurrent)) )  CALL dfftw_destroy_plan( fw_plan(2,icurrent) )
+           IF( C_ASSOCIATED(bw_plan(2,icurrent)) )  CALL dfftw_destroy_plan( bw_plan(2,icurrent) )
+           idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+           CALL dfftw_plan_many_dft( fw_plan(2,icurrent), 1, ny, 1, r(1:), &
+                (/ldx*ldy/), ldx, 1, r(1:), (/ldx*ldy/), ldx, 1, idir, &
+                FFTW_ESTIMATE)
++#else
++          CALL dfftw_plan_many_dft( fw_plan(2,icurrent), 1, ny, 1, wr(1:), &
++               (/ldx*ldy/), ldx, 1, wr(1:), (/ldx*ldy/), ldx, 1, idir, &
++               __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+           idir =  1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+           CALL dfftw_plan_many_dft( bw_plan(2,icurrent), 1, ny, 1, r(1:), &
+                (/ldx*ldy/), ldx, 1, r(1:), (/ldx*ldy/), ldx, 1, idir, &
+                FFTW_ESTIMATE)
++#else
++          CALL dfftw_plan_many_dft( bw_plan(2,icurrent), 1, ny, 1, wr(1:), &
++               (/ldx*ldy/), ldx, 1, wr(1:), (/ldx*ldy/), ldx, 1, idir, &
++               __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+ 
+           IF( C_ASSOCIATED(fw_plan(1,icurrent)) ) CALL dfftw_destroy_plan( fw_plan(1,icurrent) )
+           IF( C_ASSOCIATED(bw_plan(1,icurrent)) ) CALL dfftw_destroy_plan( bw_plan(1,icurrent) )
+           idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+           CALL dfftw_plan_many_dft( fw_plan(1,icurrent), 1, nx, ny, r(1:), &
+                (/ldx*ldy/), 1, ldx, r(1:), (/ldx*ldy/), 1, ldx, idir, &
+                FFTW_ESTIMATE)
++#else
++          CALL dfftw_plan_many_dft( fw_plan(1,icurrent), 1, nx, ny, wr(1:), &
++               (/ldx*ldy/), 1, ldx, wr(1:), (/ldx*ldy/), 1, ldx, idir, &
++               __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+           idir =  1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+           CALL dfftw_plan_many_dft( bw_plan(1,icurrent), 1, nx, ny, r(1:), &
+                (/ldx*ldy/), 1, ldx, r(1:), (/ldx*ldy/), 1, ldx, idir, &
+                FFTW_ESTIMATE)
++#else
++          CALL dfftw_plan_many_dft( bw_plan(1,icurrent), 1, nx, ny, wr(1:), &
++               (/ldx*ldy/), 1, ldx, wr(1:), (/ldx*ldy/), 1, ldx, idir, &
++               __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        ELSE
+           IF( C_ASSOCIATED(fw_plan( 1, icurrent)) ) CALL dfftw_destroy_plan( fw_plan( 1, icurrent) )
+           IF( C_ASSOCIATED(bw_plan( 1, icurrent)) ) CALL dfftw_destroy_plan( bw_plan( 1, icurrent) )
+           idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+           CALL dfftw_plan_many_dft( fw_plan( 1, icurrent), 2, (/nx, ny/), nzl,&
+                r(1:), (/nx, ny/), 1, nx*ny, r(1:), (/nx, ny/), 1, nx*ny, idir,&
+                FFTW_ESTIMATE)
++#else
++          CALL dfftw_plan_many_dft( fw_plan( 1, icurrent), 2, (/nx, ny/), nzl,&
++               wr(1:), (/nx, ny/), 1, nx*ny, wr(1:), (/nx, ny/), 1, nx*ny, idir,&
++               __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+           idir = 1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if ! defined(__PLANFLAG)
+           CALL dfftw_plan_many_dft( bw_plan( 1, icurrent), 2, (/nx, ny/), nzl,&
+                r(1:), (/nx, ny/), 1, nx*ny, r(1:), (/nx, ny/), 1, nx*ny, idir,&
+                FFTW_ESTIMATE)
++#else
++          CALL dfftw_plan_many_dft( bw_plan( 1, icurrent), 2, (/nx, ny/), nzl,&
++               wr(1:), (/nx, ny/), 1, nx*ny, wr(1:), (/nx, ny/), 1, nx*ny, idir,&
++               __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        END IF
+ 
+        dims(1,icurrent) = ny; dims(2,icurrent) = ldx;
+@@ -445,16 +529,36 @@
+      END SUBROUTINE lookup
+ 
+      SUBROUTINE init_plan()
++!  Add  February 2, 2021  FUJITSU LIMITED  >>
++#if defined(__PLANFLAG)
++       COMPLEX(DP), ALLOCATABLE :: wf(:)
++       ALLOCATE( wf( SIZE(f) ) )
++#endif
++!  Add  February 2, 2021  FUJITSU LIMITED  <<
+        IF ( nx /= ldx .or. ny /= ldy .or. nz /= ldz ) &
+             call fftx_error__('cfft3','not implemented',3)
+        IF( C_ASSOCIATED(fw_plan(icurrent)) ) CALL dfftw_destroy_plan( fw_plan(icurrent) )
+        IF( C_ASSOCIATED(bw_plan(icurrent)) ) CALL dfftw_destroy_plan( bw_plan(icurrent) )
+        idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_dft_3d ( fw_plan(icurrent), nx, ny, nz, f(1:), &
+             f(1:), idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_dft_3d ( fw_plan(icurrent), nx, ny, nz, wf(1:), &
++            wf(1:), idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir =  1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_dft_3d ( bw_plan(icurrent), nx, ny, nz, f(1:), &
+             f(1:), idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_dft_3d ( bw_plan(icurrent), nx, ny, nz, wf(1:), &
++            wf(1:), idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+ 
+        dims(1,icurrent) = nx; dims(2,icurrent) = ny; dims(3,icurrent) = nz
+        ip = icurrent
+@@ -625,6 +729,12 @@ SUBROUTINE cfft3ds (f, nx, ny, nz, ldx,
+      END SUBROUTINE lookup
+ 
+      SUBROUTINE init_plan()
++!  Add  February 2, 2021  FUJITSU LIMITED  >>
++#if defined(__PLANFLAG)
++       COMPLEX(DP), ALLOCATABLE :: wf(:)
++       ALLOCATE( wf( SIZE(f) ) )
++#endif
++!  Add  February 2, 2021  FUJITSU LIMITED  <<
+        IF( C_ASSOCIATED(fw_plan( 1, icurrent)) ) &
+             CALL dfftw_destroy_plan( fw_plan( 1, icurrent) )
+        IF( C_ASSOCIATED(bw_plan( 1, icurrent)) ) &
+@@ -638,29 +748,77 @@ SUBROUTINE cfft3ds (f, nx, ny, nz, ldx,
+        IF( C_ASSOCIATED(bw_plan( 3, icurrent)) ) &
+             CALL dfftw_destroy_plan( bw_plan( 3, icurrent) )
+        idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( fw_plan( 1, icurrent), &
+             1, nx, ny*nz, f(1:), (/ldx, ldy, ldz/), 1, ldx, &
+             f(1:), (/ldx, ldy, ldz/), 1, ldx, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( fw_plan( 1, icurrent), &
++            1, nx, ny*nz, wf(1:), (/ldx, ldy, ldz/), 1, ldx, &
++            wf(1:), (/ldx, ldy, ldz/), 1, ldx, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir = 1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( bw_plan( 1, icurrent), &
+             1, nx, ny*nz, f(1:), (/ldx, ldy, ldz/), 1, ldx, &
+             f(1:), (/ldx, ldy, ldz/), 1, ldx, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( bw_plan( 1, icurrent), &
++            1, nx, ny*nz, wf(1:), (/ldx, ldy, ldz/), 1, ldx, &
++            wf(1:), (/ldx, ldy, ldz/), 1, ldx, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( fw_plan( 2, icurrent), &
+             1, ny, nz, f(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, &
+             f(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( fw_plan( 2, icurrent), &
++            1, ny, nz, wf(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, &
++            wf(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir = 1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( bw_plan( 2, icurrent), &
+             1, ny, nz, f(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, &
+             f(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( bw_plan( 2, icurrent), &
++            1, ny, nz, wf(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, &
++            wf(1:), (/ldx, ldy, ldz/), ldx, ldx*ldy, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir = -1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( fw_plan( 3, icurrent), &
+             1, nz, 1, f(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, &
+             f(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( fw_plan( 3, icurrent), &
++            1, nz, 1, wf(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, &
++            wf(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+        idir = 1
++!  Modify  February 2, 2021  FUJITSU LIMITED  >>
++#if !defined(__PLANFLAG)
+        CALL dfftw_plan_many_dft( bw_plan( 3, icurrent), &
+             1, nz, 1, f(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, &
+             f(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, idir, FFTW_ESTIMATE)
++#else
++       CALL dfftw_plan_many_dft( bw_plan( 3, icurrent), &
++            1, nz, 1, wf(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, &
++            wf(1:), (/ldx, ldy, ldz/), ldx*ldy, 1, idir, __PLANFLAG)
++#endif
++!  Modify  February 2, 2021  FUJITSU LIMITED  <<
+ 
+        dims(1,icurrent) = nx; dims(2,icurrent) = ny; dims(3,icurrent) = nz
+        ip = icurrent

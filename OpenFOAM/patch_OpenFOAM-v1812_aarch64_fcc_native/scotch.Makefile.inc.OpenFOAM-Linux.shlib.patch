@@ -1,0 +1,31 @@
+--- SRC/ThirdParty-v1812/etc/makeFiles/scotch/Makefile.inc.OpenFOAM-Linux.shlib	2018-12-14 20:17:49.000000000 +0900
++++ DST/ThirdParty-v1812/etc/makeFiles/scotch/Makefile.inc.OpenFOAM-Linux.shlib	2020-11-16 21:24:53.000000000 +0900
+@@ -12,12 +12,12 @@ EXE         =
+ LIB         = .so
+ OBJ         = .o
+ 
+-AR          = $(CC)
+-ARFLAGS     = $(WM_CFLAGS) -shared -o
+-CCS        ?= $(CC)
+-CCP        ?= mpicc
++AR          = fcc
++ARFLAGS     = -shared -o
++CCS         = mpifcc
++CCP         = mpifcc
+ CCD         = $(CCP)
+-CFLAGS      = $(WM_CFLAGS) -O3 \
++CFLAGS      = -Nclang -O3 \
+     -DCOMMON_FILE_COMPRESS_GZ \
+     -DCOMMON_RANDOM_FIXED_SEED \
+     -DSCOTCH_DETERMINISTIC \
+@@ -29,8 +29,8 @@ ifeq ($(WM_LABEL_SIZE),64)
+ CFLAGS     += -DINTSIZE64
+ endif
+ 
+-CLIBFLAGS   = -shared
+-LDFLAGS     = -Xlinker --no-as-needed $(WM_LDFLAGS) -lz -lm -lrt
++CLIBFLAGS   = -fPIC
++LDFLAGS     = -lz -lm -lrt -lgcc_s
+ 
+ MAKE        = make
+ CP          = cp

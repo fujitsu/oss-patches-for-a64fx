@@ -1,0 +1,17 @@
+ARCH = kei
+CC = mpifccpx
+CFLAGS = -Kcmodel=large -Nlst=t -Kocl -Kfast -Kstrict_aliasing -Krestp=all -Kzfill
+CXX = mpiFCCpx
+CXXFLAGS = -Kcmodel=large -Nlst=t -Kocl -Kfast -Kstrict_aliasing -Krestp=all -Kzfill
+F90 = mpifrtpx
+FFLAGS = -Kcmodel=large -Nlst=t -Kocl -Kfast -Kstrict_aliasing -Krestp=all -Kzfill
+AR = ar
+ARFLAGS = rsv
+LD = mpiFCCpx
+LDFLAGS = $(FFLAGS) --linkfortran
+LIBPATH =
+LIBS = -lm
+EXTOBJS =
+RM = rm -f
+DOXYGEN = doxygen
+TAR = tar

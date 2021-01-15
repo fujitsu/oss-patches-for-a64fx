@@ -1,0 +1,24 @@
+--- ASIS/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/preconditioners/DICPreconditioner/DICPreconditioner.H	2018-12-21 01:13:33.000000000 +0900
++++ TUNE/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/preconditioners/DICPreconditioner/DICPreconditioner.H	2020-12-18 01:52:40.000000000 +0900
+@@ -59,7 +59,10 @@ class DICPreconditioner
+ 
+         //- The reciprocal preconditioned diagonal
+         scalarField rD_;
+-
++// Fujitsu 2020/12/18 add >>>
++        scalarField rDu_;
++        scalarField rDu2_;
++// Fujitsu 2020/12/18 add <<<
+ 
+ public:
+ 
+@@ -86,6 +89,9 @@ public:
+ 
+         //- Calculate the reciprocal of the preconditioned diagonal
+         static void calcReciprocalD(scalarField& rD, const lduMatrix& matrix);
++// Fujitsu 2020/12/18 add >>>
++        static void calcReciprocalD2(scalarField& rD, scalarField& rDu, scalarField& rDu2, const lduMatrix& matrix);
++// Fujitsu 2020/12/18 add <<<
+ 
+         //- Return wA the preconditioned form of residual rA
+         virtual void precondition

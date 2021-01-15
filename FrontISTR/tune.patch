@@ -1,0 +1,4316 @@
+From 7aac527756a75eb711405b96b947789701f04401 Mon Sep 17 00:00:00 2001
+From: morita <morita@multi.k.u-tokyo.ac.jp>
+Date: Sun, 3 Nov 2019 16:05:35 +0900
+Subject: [PATCH 1/2] tune from 5.0 to tune7
+
+---
+ .gitlab-ci.yml                                |  103 +-
+ CMakeLists.txt                                |   66 +-
+ doc/FrontISTR_manual                          |    2 +-
+ doc/requirements.txt                          |    1 +
+ docker/Makefile                               |   16 -
+ docker/binary/Makefile                        |   25 +
+ docker/{ => ci}/Dockerfile                    |    9 +-
+ docker/ci/Makefile                            |   20 +
+ docker/release/Makefile                       |   23 +
+ docker/release/fistr1.Dockerfile              |    9 +
+ docker/release/x86_64-w64-mingw32.Dockerfile  |  168 ++
+ docker/release/x86_64-w64-mingw32.cmake       |   21 +
+ .../dynamic/freq/fstr_frequency_analysis.f90  |   20 +-
+ .../analysis/dynamic/mode/fstr_EIG_output.f90 |    2 +-
+ .../transit/fstr_dynamic_nlimplicit.f90       |   40 +-
+ .../analysis/heat/heat_mat_ass_capacity.f90   |    3 +
+ fistr1/src/analysis/static/static_output.f90  |    8 +-
+ fistr1/src/common/fstr_setup.f90              |    4 +-
+ fistr1/src/lib/physics/ElasticNeoHooke.f90    |  212 ---
+ fistr1/src/lib/physics/material.f90           |    2 +-
+ fistr1/src/main/fistr_main.f90                |    2 +
+ hecmw1/src/common/CMakeLists.txt              |    1 +
+ hecmw1/src/common/Makefile.am                 |    3 +-
+ hecmw1/src/common/hecmw_io.f90                |    4 +
+ hecmw1/src/common/hecmw_io_hec.c              |    2 +-
+ hecmw1/src/common/hecmw_result_f.f90          |   53 +-
+ .../hecmw_tuning_node_block_reorder_f.f90     | 1447 +++++++++++++++++
+ hecmw1/src/common/hecmw_util_f.F90            |    9 +
+ hecmw1/src/common/res_bin_io.inc              |   14 +-
+ hecmw1/src/common/res_txt_io.inc              |   14 +-
+ hecmw1/src/hecmw/hecmw.f90                    |    1 +
+ .../src/solver/iterative/hecmw_solver_CG.f90  |   37 +-
+ .../iterative/hecmw_solver_Iterative.f90      |    3 +
+ hecmw1/src/solver/las/hecmw_solver_las.f90    |   20 +
+ hecmw1/src/solver/las/hecmw_solver_las_33.f90 |  221 ++-
+ .../src/solver/matrix/hecmw_matrix_misc.f90   |   27 +
+ .../solver/precond/33/hecmw_precond_33.f90    |    5 +-
+ .../precond/33/hecmw_precond_SSOR_33.f90      |  305 ++--
+ hecmw1/src/solver/precond/hecmw_precond.f90   |    5 +-
+ .../tools/partitioner/hecmw_mesh_edge_info.c  |  360 ++--
+ .../tools/partitioner/hecmw_mesh_edge_info.h  |    3 +-
+ hecmw1/tools/partitioner/hecmw_partition.c    |  101 +-
+ 42 files changed, 2748 insertions(+), 643 deletions(-)
+ delete mode 100644 docker/Makefile
+ create mode 100644 docker/binary/Makefile
+ rename docker/{ => ci}/Dockerfile (74%)
+ create mode 100644 docker/ci/Makefile
+ create mode 100644 docker/release/Makefile
+ create mode 100644 docker/release/fistr1.Dockerfile
+ create mode 100644 docker/release/x86_64-w64-mingw32.Dockerfile
+ create mode 100644 docker/release/x86_64-w64-mingw32.cmake
+ delete mode 100644 fistr1/src/lib/physics/ElasticNeoHooke.f90
+ create mode 100644 hecmw1/src/common/hecmw_tuning_node_block_reorder_f.f90
+
+diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+index 82055c5e..6c9863a8 100644
+--- a/.gitlab-ci.yml
++++ b/.gitlab-ci.yml
+@@ -1,4 +1,7 @@
+-image: registry.gitlab.com/frontistr-commons/frontistr/build:latest
++variables:
++  REGISTRY: registry.gitlab.com/frontistr-commons/frontistr
++
++image: ${REGISTRY}/build:latest
+ 
+ stages:
+     - build
+@@ -72,7 +75,7 @@ test_hybrid:
+         - cd build_hybrid
+         - ctest -L hybrid --output-on-failure
+ document:
+-    image: registry.gitlab.com/frontistr-commons/frontistr/document:latest
++    image: ${REGISTRY}/document:latest
+     stage: build
+     before_script:
+         - pip3 install -r doc/requirements.txt
+@@ -88,7 +91,7 @@ document:
+         GIT_SUBMODULE_STRATEGY: recursive
+ 
+ doxygen:
+-    image: registry.gitlab.com/frontistr-commons/frontistr/document:latest
++    image: ${REGISTRY}/document:latest
+     stage: build
+     script:
+         - cmake -Bbuild_doc -H. -DWITH_DOC=ON
+@@ -105,6 +108,8 @@ pages:
+     dependencies:
+         - document
+         - doxygen
++        - binary:x86_64-w64-mingw32
++        - binary:x86_64-w64-mingw32-msmpi
+     script:
+         - ls public
+     artifacts:
+@@ -112,4 +117,94 @@ pages:
+             - public
+         expire_in: 20min
+     only:
+-        - master
++      - master
++      - release
++
++docker:fistr1:
++  image: docker:latest
++  stage: build
++  services:
++    - docker:dind
++  script:
++    - apk add make
++    - cd docker/container
++    - make push
++  tags:
++    - docker
++
++binary:x86_64-w64-mingw32:
++    image: ${REGISTRY}/x86_64-w64-mingw32-lib
++    stage: build
++    script:
++        - LIB_ROOT=/usr/local/x86_64-w64-mingw32
++        - cmake  -Bbuild -H.
++            -DCMAKE_TOOLCHAIN_FILE=${LIB_ROOT}/x86_64-w64-mingw32.cmake
++            -DCMAKE_INSTALL_PREFIX=${LIB_ROOT}
++            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libstdc++ -static-libgcc -lstdc++ -lgcc -lwinpthread"
++            -DMUMPS_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMUMPS_D_LIB=${LIB_ROOT}/lib/libdmumps.a\;${LIB_ROOT}/lib/libmpiseq.a
++            -DMUMPS_PORD_LIB=${LIB_ROOT}/lib/libpord.a
++            -DMUMPS_COMMON_LIB=${LIB_ROOT}/lib/libmumps_common.a
++            -DMETIS_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMETIS_LIBRARIES=${LIB_ROOT}/lib/libmetis.a
++            -DREFINER_INCLUDE_PATH=${LIB_ROOT}/include
++            -DREFINER_LIBRARIES=${LIB_ROOT}/lib/libRcapRefiner.a
++            -DBLAS_LIBRARIES=${LIB_ROOT}/lib/libopenblas.a
++            -DLAPACK_LIBRARIES=${LIB_ROOT}/lib/libopenblas.a
++            -DSCALAPACK_LIBRARIES=${LIB_ROOT}/lib/libdmumps.a
++            -DWITH_METIS=ON
++            -DWITH_MUMPS=ON
++            -DWITH_LAPACK=ON
++            -DWITH_REFINER=ON
++            -DWITH_ML=ON
++            -DWITH_MPI=OFF
++            -DWINDOWS=ON
++        - cmake --build build -- -j $(nproc)
++        - mkdir -p public/release/x86_64-w64-mingw32/
++        - zip -j public/release/x86_64-w64-mingw32/FrontISTR-latest.zip build/fistr1/fistr1.exe build/fistr1/tools/neu2fstr.exe build/hecmw1/tools/hecmw_part1.exe build/hecmw1/tools/hecmw_vis1.exe build/hecmw1/tools/rmerge.exe build/hecmw1/tools/hec2rcap.exe build/hecmw1/tools/rconv.exe
++    artifacts:
++        paths:
++            - public
++        expire_in: 100min
++
++binary:x86_64-w64-mingw32-msmpi:
++    image: ${REGISTRY}/x86_64-w64-mingw32-mpilib
++    stage: build
++    script:
++        - LIB_ROOT=/usr/local/x86_64-w64-mingw32
++        - cmake  -Bbuild -H.
++            -DCMAKE_TOOLCHAIN_FILE=${LIB_ROOT}/x86_64-w64-mingw32.cmake
++            -DCMAKE_INSTALL_PREFIX=${LIB_ROOT}
++            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libstdc++ -static-libgcc -lstdc++ -lgcc -lwinpthread"
++            -DCMAKE_CXX_STANDARD_LIBRARIES=${LIB_ROOT}/lib/libmsmpi.a
++            -DMPI_C_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMPI_C_LIBRARIES=${LIB_ROOT}/lib/libmsmpi.a
++            -DMPI_CXX_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMPI_CXX_LIBRARIES=${LIB_ROOT}/lib/libmsmpi.a
++            -DMPI_Fortran_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMPI_Fortran_LIBRARIES=${LIB_ROOT}/lib/libmsmpi.a
++            -DMUMPS_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMUMPS_D_LIB=${LIB_ROOT}/lib/libdmumps.a
++            -DMUMPS_PORD_LIB=${LIB_ROOT}/lib/libpord.a
++            -DMUMPS_COMMON_LIB=${LIB_ROOT}/lib/libmumps_common.a
++            -DMETIS_INCLUDE_PATH=${LIB_ROOT}/include
++            -DMETIS_LIBRARIES=${LIB_ROOT}/lib/libmetis.a
++            -DREFINER_INCLUDE_PATH=${LIB_ROOT}/include
++            -DREFINER_LIBRARIES=${LIB_ROOT}/lib/libRcapRefiner.a
++            -DBLAS_LIBRARIES=${LIB_ROOT}/lib/libopenblas.a
++            -DLAPACK_LIBRARIES=${LIB_ROOT}/lib/libopenblas.a
++            -DSCALAPACK_LIBRARIES=${LIB_ROOT}/lib/libscalapack.a
++            -DWITH_METIS=ON
++            -DWITH_MUMPS=ON
++            -DWITH_LAPACK=ON
++            -DWITH_REFINER=ON
++            -DWITH_ML=ON
++            -DWITH_MPI=ON
++            -DWINDOWS=ON
++        - cmake --build build -- -j $(nproc)
++        - mkdir -p public/release/x86_64-w64-mingw32-msmpi/
++        - zip -j public/release/x86_64-w64-mingw32-msmpi/FrontISTR-latest.zip build/fistr1/fistr1.exe build/fistr1/tools/neu2fstr.exe build/hecmw1/tools/hecmw_part1.exe build/hecmw1/tools/hecmw_vis1.exe build/hecmw1/tools/rmerge.exe build/hecmw1/tools/hec2rcap.exe build/hecmw1/tools/rconv.exe ${LIB_ROOT}/bin/mpiexec.exe ${LIB_ROOT}/bin/smpd.exe
++    artifacts:
++        paths:
++            - public
++        expire_in: 100min
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index eb03c613..c19a66eb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -135,8 +135,8 @@ find_package(MPI)
+ find_package(OpenMP)
+ find_package(LAPACK)
+ find_package(Metis)
+-find_package(Mumps)
+ find_package(Parmetis)
++find_package(Mumps)
+ find_package(Refiner)
+ find_package(Revocap)
+ find_package(Scalapack)
+@@ -161,27 +161,6 @@ option(OLD_RES_FORMAT "use old style result file" ${OLD_RES_FORMAT})
+ option(DEBUG_EXTRA "enable memory leak check (only for gcc4.9 <)" OFF)
+ feature_summary(WHAT ALL)
+ 
+-###################
+-# -DWITH_MPI
+-###################
+-if(WITH_MPI AND MPI_Fortran_FOUND AND MPI_CXX_FOUND AND MPI_C_FOUND)
+-  list(APPEND FrontISTR_INCLUDE_DIRS
+-    ${MPI_C_INCLUDE_PATH}
+-    ${MPI_CXX_INCLUDE_PATH}
+-    ${MPI_Fortran_INCLUDE_PATH})
+-
+-  list(APPEND FrontISTR_LIBRARIES
+-    ${MPI_C_LIBRARIES}
+-    ${MPI_CXX_LIBRARIES}
+-    ${MPI_Fortran_LIBRARIES})
+-
+-else()
+-  set(WITH_MPI OFF)
+-  set(HECMW_SERIAL ON)
+-  list(APPEND FrontISTR_DEFINITIONS "HECMW_SERIAL")
+-endif()
+-mark_as_advanced(MPI_EXTRA_LIBRARY MPI_LIBRARY)
+-
+ ###################
+ # -DWITH_OPENMP
+ ###################
+@@ -230,17 +209,6 @@ if(WITH_ML)
+ endif()
+ mark_as_advanced(Trilinos_DIR)
+ 
+-###################
+-# -DWITH_PARMETIS
+-###################
+-if(WITH_PARMETIS AND PARMETIS_FOUND)
+-  list(APPEND FrontISTR_INCLUDE_DIRS ${PARMETIS_INCLUDE_PATH})
+-  list(APPEND FrontISTR_LIBRARIES ${PARMETIS_LIBRARIES})
+-  if(NOT PARMETIS_VER_3)
+-  else()
+-  endif()
+-endif()
+-
+ ###################
+ # -DWITH_MUMPS
+ ###################
+@@ -258,6 +226,17 @@ else()
+   set(WITH_MUMPS OFF)
+ endif()
+ 
++###################
++# -DWITH_PARMETIS
++###################
++if(WITH_PARMETIS AND PARMETIS_FOUND)
++  list(APPEND FrontISTR_INCLUDE_DIRS ${PARMETIS_INCLUDE_PATH})
++  list(APPEND FrontISTR_LIBRARIES ${PARMETIS_LIBRARIES})
++  if(NOT PARMETIS_VER_3)
++  else()
++  endif()
++endif()
++
+ ###################
+ # -DWITH_METIS
+ # -DMETIS_VER_4
+@@ -307,6 +286,27 @@ if(OLD_RES_FORMAT)
+   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DOLD_RES_FORMAT")
+ endif()
+ 
++###################
++# -DWITH_MPI
++###################
++if(WITH_MPI AND MPI_Fortran_FOUND AND MPI_CXX_FOUND AND MPI_C_FOUND)
++  list(APPEND FrontISTR_INCLUDE_DIRS
++    ${MPI_C_INCLUDE_PATH}
++    ${MPI_CXX_INCLUDE_PATH}
++    ${MPI_Fortran_INCLUDE_PATH})
++
++  list(APPEND FrontISTR_LIBRARIES
++    ${MPI_C_LIBRARIES}
++    ${MPI_CXX_LIBRARIES}
++    ${MPI_Fortran_LIBRARIES})
++
++else()
++  set(WITH_MPI OFF)
++  set(HECMW_SERIAL ON)
++  list(APPEND FrontISTR_DEFINITIONS "HECMW_SERIAL")
++endif()
++mark_as_advanced(MPI_EXTRA_LIBRARY MPI_LIBRARY)
++
+ #############################################
+ # Archtecture and compiler dependent options
+ #############################################
+diff --git a/doc/FrontISTR_manual b/doc/FrontISTR_manual
+index b24c5b11..82c80ac1 160000
+--- a/doc/FrontISTR_manual
++++ b/doc/FrontISTR_manual
+@@ -1 +1 @@
+-Subproject commit b24c5b11c6ca99cf37b47b63ab4767117b0c6fed
++Subproject commit 82c80ac1011e5622c717ee8309d94e214034536e
+diff --git a/doc/requirements.txt b/doc/requirements.txt
+index 4072971b..017b1b11 100644
+--- a/doc/requirements.txt
++++ b/doc/requirements.txt
+@@ -2,3 +2,4 @@ mkdocs
+ mkdocs-bootstrap
+ mkdocs-windmill
+ python-markdown-math
++mkdocs-material
+diff --git a/docker/Makefile b/docker/Makefile
+deleted file mode 100644
+index 70849a14..00000000
+--- a/docker/Makefile
++++ /dev/null
+@@ -1,16 +0,0 @@
+-REGISTORY := registry.ritc.jp/ricos/frontistr
+-
+-all: build document
+-
+-login:
+-	docker login $(REGISTORY)
+-
+-build:
+-	docker build -t $(REGISTORY)/build . --target build
+-
+-document:
+-	docker build -t $(REGISTORY)/document . --target document
+-
+-push: build document
+-	docker push $(REGISTORY)/build
+-	docker push $(REGISTORY)/document
+diff --git a/docker/binary/Makefile b/docker/binary/Makefile
+new file mode 100644
+index 00000000..e40d72ef
+--- /dev/null
++++ b/docker/binary/Makefile
+@@ -0,0 +1,25 @@
++CI_REGISTRY_IMAGE  ?= registry.gitlab.com/frontistr-commons/frontistr
++
++all: x86_64-w64-mingw32-build x86_64-w64-mingw32-lib x86_64-w64-mingw32-mpilib
++
++login:
++ifeq ($(CI_BUILD_TOKEN),)
++	docker login $(CI_REGISTRY_IMAGE)
++else
++	docker login -u gitlab-ci-token -p $(CI_BUILD_TOKEN) $(CI_REGISTRY_IMAGE)
++endif
++
++x86_64-w64-mingw32-build:
++	docker build -t $(CI_REGISTRY_IMAGE)/x86_64-w64-mingw32-build -f x86_64-w64-mingw32.Dockerfile . --target x86_64-w64-mingw32-build
++x86_64-w64-mingw32-lib:
++	docker build -t $(CI_REGISTRY_IMAGE)/x86_64-w64-mingw32-lib   -f x86_64-w64-mingw32.Dockerfile . --target x86_64-w64-mingw32-lib
++x86_64-w64-mingw32-mpilib:
++#	curl -O https://download.microsoft.com/download/a/5/2/a5207ca5-1203-491a-8fb8-906fd68ae623/msmpisetup.exe
++#	curl -O https://download.microsoft.com/download/a/5/2/a5207ca5-1203-491a-8fb8-906fd68ae623/msmpisdk.msi
++	docker build -t $(CI_REGISTRY_IMAGE)/x86_64-w64-mingw32-mpilib   -f x86_64-w64-mingw32.Dockerfile . --target x86_64-w64-mingw32-mpilib
++
++push: login x86_64-w64-mingw32-build x86_64-w64-mingw32-lib x86_64-w64-mingw32-mpilib
++	docker push $(CI_REGISTRY_IMAGE)/x86_64-w64-mingw32-build
++	docker push $(CI_REGISTRY_IMAGE)/x86_64-w64-mingw32-lib
++	docker push $(CI_REGISTRY_IMAGE)/x86_64-w64-mingw32-mpilib
++
+diff --git a/docker/Dockerfile b/docker/ci/Dockerfile
+similarity index 74%
+rename from docker/Dockerfile
+rename to docker/ci/Dockerfile
+index 1d8d3b6a..ce22a71c 100644
+--- a/docker/Dockerfile
++++ b/docker/ci/Dockerfile
+@@ -1,6 +1,10 @@
+-FROM ubuntu:18.04 AS build
+-LABEL maintainer="yu"
++FROM ubuntu:18.04 AS runtime
++RUN apt-get update \
++ && apt-get -y install libmumps-5.1.2 libgomp1 libtrilinos-ml12 libopenmpi2 libmetis5 openssh-client \
++ && apt-get clean      \
++ && rm -rf /var/lib/apt/lists/*
+ 
++FROM runtime AS build
+ RUN apt-get update \
+  && apt-get -y install \
+     build-essential    \
+@@ -29,3 +33,4 @@ RUN apt-get update \
+     python3-pip        \
+  && apt-get clean      \
+  && rm -rf /var/lib/apt/lists/*
++
+diff --git a/docker/ci/Makefile b/docker/ci/Makefile
+new file mode 100644
+index 00000000..8383e6b5
+--- /dev/null
++++ b/docker/ci/Makefile
+@@ -0,0 +1,20 @@
++CI_REGISTRY_IMAGE  ?= registry.gitlab.com/frontistr-commons/frontistr
++all: runtime build document
++
++login:
++ifeq ($(CI_BUILD_TOKEN),)
++	docker login $(CI_REGISTRY_IMAGE)
++else
++	docker login -u gitlab-ci-token -p $(CI_BUILD_TOKEN) $(CI_REGISTRY_IMAGE)
++endif
++
++runtime:
++	docker build -t $(CI_REGISTRY_IMAGE)/runtime . --target runtime
++build:
++	docker build -t $(CI_REGISTRY_IMAGE)/build . --target build
++document:
++	docker build -t $(CI_REGISTRY_IMAGE)/document . --target document
++push: login build document
++	docker push $(CI_REGISTRY_IMAGE)/runtime
++	docker push $(CI_REGISTRY_IMAGE)/build
++	docker push $(CI_REGISTRY_IMAGE)/document
+diff --git a/docker/release/Makefile b/docker/release/Makefile
+new file mode 100644
+index 00000000..7d2ecb3a
+--- /dev/null
++++ b/docker/release/Makefile
+@@ -0,0 +1,23 @@
++CI_REGISTRY_IMAGE  ?= registry.gitlab.com/frontistr-commons/frontistr
++CI_COMMIT_REF_NAME ?= _no_branch
++CI_COMMIT_REF_NAME := $(shell echo $(CI_COMMIT_REF_NAME) | sed -e 's/\//__/')
++
++all: build
++
++login:
++ifeq ($(CI_BUILD_TOKEN),)
++	docker login $(CI_REGISTRY_IMAGE)
++else
++	docker login -u gitlab-ci-token -p $(CI_BUILD_TOKEN) $(CI_REGISTRY_IMAGE)
++endif
++
++build:
++	docker build \
++		-t $(CI_REGISTRY_IMAGE)/fistr1:$(CI_COMMIT_REF_NAME) \
++		-f Dockerfile \
++		--target fistr1 \
++		../..
++
++push: login build
++	docker push $(CI_REGISTRY_IMAGE)/fistr1:$(CI_COMMIT_REF_NAME)
++
+diff --git a/docker/release/fistr1.Dockerfile b/docker/release/fistr1.Dockerfile
+new file mode 100644
+index 00000000..0e9bfb45
+--- /dev/null
++++ b/docker/release/fistr1.Dockerfile
+@@ -0,0 +1,9 @@
++# docker build *MUST* run on the top of this project. see Makefile
++FROM registry.gitlab.com/frontistr-commons/frontistr/build:latest AS fistr1-build
++COPY . /src
++WORKDIR /src
++RUN cmake -B/build -H. -DCMAKE_INSTALL_PREFIX=/src/bin \
++ && cmake --build /build --target install -- -j $(nproc)
++
++FROM registry.gitlab.com/frontistr-commons/frontistr/runtime:latest AS fistr1
++COPY --from=fistr1-build /src/bin /usr
+diff --git a/docker/release/x86_64-w64-mingw32.Dockerfile b/docker/release/x86_64-w64-mingw32.Dockerfile
+new file mode 100644
+index 00000000..625ae33a
+--- /dev/null
++++ b/docker/release/x86_64-w64-mingw32.Dockerfile
+@@ -0,0 +1,168 @@
++FROM centos:7 AS x86_64-w64-mingw32-build
++RUN yum -y install cmake gcc git gcc-gfortran gcc-c++ binutils.x86_64 glibc-static libstdc++-static epel-release make zip unzip\
++ && yum -y install mingw-binutils-generic \
++ && yum -y install mingw64-cpp  mingw64-gcc-c++ mingw64-winpthreads mingw64-gcc mingw64-winpthreads-static mingw64-binutils mingw64-libgomp mingw64-gcc-gfortran mingw64-headers mingw-w64-tools \
++ && yum -y clean all       \
++ && rm -rf /var/cache/yum/*
++
++
++FROM x86_64-w64-mingw32-build AS x86_64-w64-mingw32-lib1
++COPY x86_64-w64-mingw32.cmake /usr/local/x86_64-w64-mingw32/
++RUN export target=x86_64-w64-mingw32 \
++ && export LIB_ROOT=/usr/local/$target \
++ && mkdir $LIB_ROOT/include && mkdir $LIB_ROOT/lib \
++ && cd /tmp \
++ && git clone --depth 1 -b v0.3.7 https://github.com/xianyi/OpenBLAS.git \
++ && pushd OpenBLAS \
++ && CC=${target}-gcc FC=${target}-gfortran RANLIB=${target}-ranlib HOSTCC=gcc make USE_OPENMP=1 BINARY=64 DYNAMIC_ARCH=1 NO_SHARED=1 -j \
++ && make PREFIX=${LIB_ROOT} install \
++ && popd \
++ && curl -L -O http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/metis-5.1.0.tar.gz \
++ && tar xvf metis-5.1.0.tar.gz \
++ && pushd metis-5.1.0 \
++ && sed -i -e "/#include <sys\/resource.h>/d" ./GKlib/gk_arch.h \
++ && sed -i -e "/extern int gk_getopt/d" -e "/longopts/d" ./GKlib/gk_getopt.h \
++ && mkdir build-static \
++ && pushd build-static \
++ && cmake  -DCMAKE_TOOLCHAIN_FILE=$LIB_ROOT/${target}.cmake -DOPENMP=ON -DGKRAND=ON -DCMAKE_BUILD_TYPE="Release" -DCMAKE_VERBOSE_MAKEFILE=1  -DGKLIB_PATH=../GKlib -DCMAKE_INSTALL_PREFIX="${LIB_ROOT} " .. \
++ && make -j \
++ && make install \
++ && popd \
++ && popd \
++ && git clone --depth 1 https://gitlab.com/FrontISTR-Commons/REVOCAP_Mesh.git \
++ && cd REVOCAP_Mesh \
++ && sed  -i -e "s/ g++/ ${target}-g++/" -e "s/AR = ar/AR = ${target}-ar/" MakefileConfig.in  \
++ && make Refiner -j \
++ && find lib -type f -name "libRcapRefiner*" -exec cp {} ${LIB_ROOT}/lib/ \; \
++ && find . -type f -name "rcapRefiner.h" -exec cp {} ${LIB_ROOT}/include/ \; \
++ && rm -fr /tmp/*
++
++
++FROM x86_64-w64-mingw32-lib1 AS x86_64-w64-mingw32-lib
++RUN export target=x86_64-w64-mingw32 \
++ && export LIB_ROOT=/usr/local/$target \
++ && cd /tmp \
++ && curl -L -O http://mumps.enseeiht.fr/MUMPS_5.1.2.tar.gz \
++ && tar xvf MUMPS_5.1.2.tar.gz \
++ && pushd MUMPS_5.1.2 \
++ && cp Make.inc/Makefile.inc.generic.SEQ Makefile.inc \
++ && sed -i \
++ -e "s|^LAPACK = -llapack|LAPACK = -L${LIB_ROOT}/lib -lopenblas|" \
++ -e "s|^LIBBLAS = -lblas|LIBBLAS = -L${LIB_ROOT}/lib -lopenblas|" \
++ -e "s|^CC      = cc|CC      = ${target}-gcc|"  \
++ -e "s|^FC      = f90|FC      = ${target}-gfortran|"  \
++ -e "s|^FL      = f90|FL      = ${target}-gfortran|" \
++ -e "s|^OPTF    = -O|OPTF    = -O -fopenmp -DBLR_MT|" \
++ -e "s|^OPTC    = -O -I\.|OPTC    = -O -I. -fopenmp|" \
++ -e "s|^OPTL    = -O|OPTL    = -O -fopenmp|" Makefile.inc \
++ && make RANLIB=${target}-ranlib d -j \
++ && cp include/d*.h ${LIB_ROOT}/include \
++ && cp lib/*.a ${LIB_ROOT}/lib \
++ && cp libseq/*.h ${LIB_ROOT}/include \
++ && cp libseq/*.a ${LIB_ROOT}/lib \
++ && popd \
++ && git clone --depth 1 -b trilinos-release-12-12-1 https://github.com/trilinos/Trilinos.git \
++ && pushd Trilinos \
++ && sed -i -e "s/git.cmd/git/" ./cmake/tribits/core/package_arch/TribitsConstants.cmake \
++ && mkdir build; cd build \
++ && cmake \
++  -DCMAKE_TOOLCHAIN_FILE=${LIB_ROOT}/${target}.cmake \
++  -DCMAKE_INSTALL_PREFIX=${LIB_ROOT} \
++  -DBUILD_SHARED_LIBS=OFF \
++  -DCMAKE_CXX_FLAGS_NONE_OVERRIDE=-fopenmp \
++  -DTPL_BLAS_LIBRARIES=$LIB_ROOT/lib/libopenblas.a \
++  -DTPL_LAPACK_LIBRARIES=$LIB_ROOT/lib/libopenblas.a \
++  -DTPL_METIS_LIBRARIES=$LIB_ROOT/lib/libmetis.a \
++  -DTPL_METIS_INCLUDE_DIRS=$LIB_ROOT/include \
++  -DTPL_MUMPS_LIBRARIES=$LIB_ROOT/lib/libdmumps.a \
++  -DTPL_MUMPS_INCLUDE_DIRS=$LIB_ROOT/include \
++  -DTPL_ENABLE_METIS=ON \
++  -DTPL_ENABLE_MUMPS=ON \
++  -DTrilinos_ENABLE_ALL_OPTIONAL_PACKAGES=OFF \
++  -DTrilinos_ENABLE_TriKota=OFF \
++  -DTrilinos_ENABLE_ML=ON \
++  -DTrilinos_ENABLE_Zoltan=ON \
++  -DTrilinos_ENABLE_OpenMP=ON \
++  -DTrilinos_ENABLE_Amesos=OFF \
++  -DTPL_ENABLE_DLlib=OFF \
++  -DMETIS_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DMUMPS_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DBLAS_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DLAPACK_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DBLAS_LIBRARY_NAMES="openblas" \
++  -DLAPACK_LIBRARY_NAMES="openblas" \
++  -DTrilinos_ENABLE_Fortran=OFF \
++  .. \
++ && make -j \
++ && make install \
++ && popd \
++ && rm -fr /tmp/*
++
++FROM x86_64-w64-mingw32-lib1 AS x86_64-w64-mingw32-mpilib
++RUN export target=x86_64-w64-mingw32 \
++ && export LIB_ROOT=/usr/local/$target \
++ && cd /tmp \
++ && curl -L -O https://www.frontistr.com/files/MS-MPI_v10.1.2.tar.gz \
++ && tar xvf MS-MPI_v10.1.2.tar.gz && cp -r ./msmpi/bin ./msmpi/include ./msmpi/lib ${LIB_ROOT} \
++ && pushd ${LIB_ROOT}/lib/ && gendef msmpi.dll && x86_64-w64-mingw32-dlltool -d msmpi.def -l libmsmpi.a -D msmpi.dll && rm msmpi.def && popd \
++ && curl -L -O http://www.netlib.org/scalapack/scalapack-2.0.2.tgz \
++ && tar xvf scalapack-2.0.2.tgz \
++ && pushd scalapack-2.0.2 \
++ && sed -e "s/mpif90/x86_64-w64-mingw32-gfortran/g" -e "s/mpicc/x86_64-w64-mingw32-gcc/"  -e "s/ranlib/x86_64-w64-mingw32-ranlib/" -e "s/ar/x86_64-w64-mingw32-ar/" -e "s|-O3|-O3 -I${LIB_ROOT}/include|g" SLmake.inc.example > SLmake.inc \
++ && make lib && cp libscalapack.a ${LIB_ROOT}/lib \
++ && popd \
++ && curl -L -O http://mumps.enseeiht.fr/MUMPS_5.1.2.tar.gz \
++ && tar xvf MUMPS_5.1.2.tar.gz \
++ && pushd MUMPS_5.1.2 \
++ && sed \
++ -e "s|^LAPACK = -llapack|LAPACK = -L${LIB_ROOT}/lib -lopenblas|" \
++ -e "s|^LIBBLAS = -lblas|LIBBLAS = -L${LIB_ROOT}/lib -lopenblas|" \
++ -e "s|^CC      = cc|CC      = ${target}-gcc|"  \
++ -e "s|^FC      = f90|FC      = ${target}-gfortran|"  \
++ -e "s|^FL      = f90|FL      = ${target}-gfortran|" \
++ -e "s|^INCPAR  = -I/usr/include|INCPAR  = -I${LIB_ROOT}/include|" \
++ -e "s|^OPTF    = -O|OPTF    = -O -fopenmp -DBLR_MT|" \
++ -e "s|^OPTC    = -O -I\.|OPTC    = -O -I. -fopenmp|" \
++ -e "s|^OPTL    = -O|OPTL    = -O -fopenmp|" Make.inc/Makefile.inc.generic > Makefile.inc \
++ && make RANLIB=${target}-ranlib d -j \
++ && cp include/d*.h ${LIB_ROOT}/include \
++ && cp lib/*.a ${LIB_ROOT}/lib \
++ && popd \
++ && git clone --depth 1 -b trilinos-release-12-12-1 https://github.com/trilinos/Trilinos.git \
++ && pushd Trilinos \
++ && sed -i -e "s/git.cmd/git/" ./cmake/tribits/core/package_arch/TribitsConstants.cmake \
++ && mkdir build; cd build \
++ && cmake \
++  -DCMAKE_TOOLCHAIN_FILE=${LIB_ROOT}/${target}.cmake \
++  -DCMAKE_INSTALL_PREFIX=${LIB_ROOT} \
++  -DBUILD_SHARED_LIBS=OFF \
++  -DCMAKE_CXX_FLAGS_NONE_OVERRIDE=-fopenmp \
++  -DTPL_BLAS_LIBRARIES=$LIB_ROOT/lib/libopenblas.a \
++  -DTPL_LAPACK_LIBRARIES=$LIB_ROOT/lib/libopenblas.a \
++  -DTPL_METIS_LIBRARIES=$LIB_ROOT/lib/libmetis.a \
++  -DTPL_METIS_INCLUDE_DIRS=$LIB_ROOT/include \
++  -DTPL_MUMPS_LIBRARIES=$LIB_ROOT/lib/libdmumps.a \
++  -DTPL_MUMPS_INCLUDE_DIRS=$LIB_ROOT/include \
++  -DTPL_ENABLE_METIS=ON \
++  -DTPL_ENABLE_MUMPS=ON \
++  -DTrilinos_ENABLE_ALL_OPTIONAL_PACKAGES=OFF \
++  -DTrilinos_ENABLE_TriKota=OFF \
++  -DTrilinos_ENABLE_ML=ON \
++  -DTrilinos_ENABLE_Zoltan=ON \
++  -DTrilinos_ENABLE_OpenMP=ON \
++  -DTrilinos_ENABLE_Amesos=OFF \
++  -DTPL_ENABLE_DLlib=OFF \
++  -DMETIS_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DMUMPS_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DBLAS_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DLAPACK_LIBRARY_DIRS=$LIB_ROOT/lib \
++  -DBLAS_LIBRARY_NAMES="openblas" \
++  -DLAPACK_LIBRARY_NAMES="openblas" \
++  -DTrilinos_ENABLE_Fortran=OFF \
++  -DTPL_ENABLE_MPI=ON \
++  .. \
++ && make -j \
++ && make install \
++ && popd \
++ && rm -fr /tmp/*
++
+diff --git a/docker/release/x86_64-w64-mingw32.cmake b/docker/release/x86_64-w64-mingw32.cmake
+new file mode 100644
+index 00000000..e3e6fc6e
+--- /dev/null
++++ b/docker/release/x86_64-w64-mingw32.cmake
+@@ -0,0 +1,21 @@
++SET(CMAKE_SYSTEM_NAME Windows)
++SET(CMAKE_C_COMPILER              /usr/bin/x86_64-w64-mingw32-gcc)
++SET(CMAKE_C_COMPILER_AR           /usr/bin/x86_64-w64-mingw32-gcc-ar)
++SET(CMAKE_C_COMPILER_RANLIB       /usr/bin/x86_64-w64-mingw32-gcc-ranlib)
++SET(CMAKE_CXX_COMPILER            /usr/bin/x86_64-w64-mingw32-g++)
++SET(CMAKE_CXX_COMPILER_AR         /usr/bin/x86_64-w64-mingw32-gcc-ar)
++SET(CMAKE_CXX_COMPILER_RANLIB     /usr/bin/x86_64-w64-mingw32-gcc-ranlib)
++SET(CMAKE_Fortran_COMPILER        /usr/bin/x86_64-w64-mingw32-gfortran)
++SET(CMAKE_Fortran_COMPILER_AR     /usr/bin/x86_64-w64-mingw32-gcc-ar)
++SET(CMAKE_Fortran_COMPILER_RANLIB /usr/bin/x86_64-w64-mingw32-gcc-ranlib)
++SET(CMAKE_NM                      /usr/bin/x86_64-w64-mingw32-nm)
++SET(CMAKE_OBJCOPY                 /usr/bin/x86_64-w64-mingw32-objcopy)
++SET(CMAKE_OBJDUMP                 /usr/bin/x86_64-w64-mingw32-objdump)
++SET(CMAKE_RANLIB                  /usr/bin/x86_64-w64-mingw32-ranlib)
++SET(CMAKE_STRIP                   /usr/bin/x86_64-w64-mingw32-strip)
++SET(CMAKE_RC_COMPILER             /usr/bin/x86_64-w64-mingw32-windres)
++SET(CMAKE_FIND_ROOT_PATH          /usr/x86_64-w64-mingw32)
++SET(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
++SET(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
++SET(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
++
+diff --git a/fistr1/src/analysis/dynamic/freq/fstr_frequency_analysis.f90 b/fistr1/src/analysis/dynamic/freq/fstr_frequency_analysis.f90
+index c140249b..8f1d7fa1 100644
+--- a/fistr1/src/analysis/dynamic/freq/fstr_frequency_analysis.f90
++++ b/fistr1/src/analysis/dynamic/freq/fstr_frequency_analysis.f90
+@@ -192,7 +192,7 @@ contains
+       if(IRESULT==1) then
+         write(*,   *) freq, "[Hz] : ", im, ".res"
+         write(ilog,*) freq, "[Hz] : ", im, ".res"
+-        call output_resfile(hecMESH, im, disp, vel, acc, freqiout)
++        call output_resfile(hecMESH, freq, im, disp, vel, acc, freqiout)
+       end if
+       if(IVISUAL==1 .and. vistype==1) then
+         write(*,   *) freq, "[Hz] : ", im, ".vis"
+@@ -232,7 +232,7 @@ contains
+       if(IRESULT==1) then
+         write(*,   *) "time=", time, " : ", im, ".res"
+         write(ilog,*) "time=", time, " : ", im, ".res"
+-        call outputdyna_resfile(hecMESH, im, dvaRe, dvaIm, velRe, velIm, accRe, accIm, freqiout)
++        call outputdyna_resfile(hecMESH, time, im, dvaRe, dvaIm, velRe, velIm, accRe, accIm, freqiout)
+       end if
+       if(IVISUAL==1 .and. vistype==2) then
+         write(*,   *) "time=", time, " : ", im, ".vis"
+@@ -439,9 +439,10 @@ contains
+ 
+   end subroutine
+ 
+-  subroutine output_resfile(hecMESH, ifreq, disp, vel, acc, iout)
++  subroutine output_resfile(hecMESH, freq, ifreq, disp, vel, acc, iout)
+     !---- args
+     type(hecmwST_local_mesh), intent(in) :: hecMESH
++    real(kind=kreal), intent(in)         :: freq
+     integer(kind=kint), intent(in)       :: ifreq
+     real(kind=kreal), intent(in)         :: disp(:) !intend (numnodeDOF)
+     real(kind=kreal), intent(in)         :: vel(:) !intend (numnodeDOF)
+@@ -452,12 +453,18 @@ contains
+     character(len=HECMW_HEADER_LEN) :: header
+     character(len=HECMW_MSG_LEN)    :: comment
+     character(len=HECMW_NAME_LEN)   :: label, nameid
++    real(kind=kreal)                :: freqval(1)
+     !---- body
+ 
+     nameid='fstrRES'
+     header='*fstrresult'
+     comment='frequency_result'
+     call hecmw_result_init(hecMESH, ifreq, header, comment)
++
++    label = "frequency"
++    freqval(1) = freq
++    call hecmw_result_add(3, 1, label, freqval)
++
+     if(iout(1) == 1) then
+       label='displacement'
+       call hecmw_result_add(1, 3, label, disp) !mode=node, ndof=3
+@@ -972,9 +979,10 @@ contains
+     return
+   end subroutine
+ 
+-  subroutine outputdyna_resfile(hecMESH, istp, dispre, dispim, velre, velim, accre, accim, iout)
++  subroutine outputdyna_resfile(hecMESH, time, istp, dispre, dispim, velre, velim, accre, accim, iout)
+     !---- args
+     type(hecmwST_local_mesh), intent(in) :: hecMESH
++    real(kind=kreal), intent(in)   :: time
+     integer(kind=kint), intent(in) :: istp
+     real(kind=kreal), intent(in)   :: dispre(:) !intend (numnodeDOF)
+     real(kind=kreal), intent(in)   :: dispim(:) !intend (numnodeDOF)
+@@ -1000,6 +1008,10 @@ contains
+ 
+     call hecmw_result_init(hecMESH, istp, header, comment)
+ 
++    label = "time"
++    absval(1) = time
++    call hecmw_result_add(3, 1, label, absval)
++
+     if(iout(1) == 1) then
+       label='displacement_real'
+       call hecmw_result_add(1, 3, label, dispre) !mode=node, ndof=3
+diff --git a/fistr1/src/analysis/dynamic/mode/fstr_EIG_output.f90 b/fistr1/src/analysis/dynamic/mode/fstr_EIG_output.f90
+index d46f38d5..fb8df5f0 100644
+--- a/fistr1/src/analysis/dynamic/mode/fstr_EIG_output.f90
++++ b/fistr1/src/analysis/dynamic/mode/fstr_EIG_output.f90
+@@ -141,7 +141,7 @@ contains
+     allocate(egval(1))
+ 
+     do istep = 1, nget
+-      egval(1) = fstrEIG%eigval(1)
++      egval(1) = fstrEIG%eigval(istep)
+       do i=1,NPNDOF
+         X(i) = eigvec(i,istep)
+       enddo
+diff --git a/fistr1/src/analysis/dynamic/transit/fstr_dynamic_nlimplicit.f90 b/fistr1/src/analysis/dynamic/transit/fstr_dynamic_nlimplicit.f90
+index ef56d0cc..68ce8f39 100644
+--- a/fistr1/src/analysis/dynamic/transit/fstr_dynamic_nlimplicit.f90
++++ b/fistr1/src/analysis/dynamic/transit/fstr_dynamic_nlimplicit.f90
+@@ -43,6 +43,7 @@ contains
+ 
+     !C-- local variable
+     type(hecmwST_matrix), pointer :: hecMATmpc
++    type(hecmwST_matrix), pointer :: hecMAT0
+     integer(kind=kint) :: nnod, ndof, numnp, nn
+     integer(kind=kint) :: i, j, ids, ide, ims, ime, kk, idm, imm
+     integer(kind=kint) :: iter
+@@ -51,6 +52,7 @@ contains
+     integer(kind=kint) :: kkk0, kkk1
+     integer(kind=kint) :: restrt_step_num
+     integer(kind=kint) :: n_node_global
++    integer(kind=kint) :: ierr
+ 
+     real(kind=kreal) :: a1, a2, a3, b1, b2, b3, c1, c2
+     real(kind=kreal) :: bsize, res, resb
+@@ -62,6 +64,7 @@ contains
+     resb = 0.0d0
+ 
+     call hecmw_mpc_mat_init(hecMESH, hecMAT, hecMATmpc)
++    nullify(hecMAT0)
+ 
+     ! sum of n_node among all subdomains (to be used to calc res)
+     n_node_global = hecMESH%nn_internal
+@@ -149,7 +152,19 @@ contains
+         endif
+ 
+         do iter = 1, fstrSOLID%step_ctrl(cstep)%max_iter
+-          call fstr_StiffMatrix( hecMESH, hecMAT, fstrSOLID, fstrDYNAMIC%t_curr, fstrDYNAMIC%t_delta )
++          if (fstrPARAM%nlgeom) then
++            call fstr_StiffMatrix( hecMESH, hecMAT, fstrSOLID, fstrDYNAMIC%t_curr, fstrDYNAMIC%t_delta )
++          else
++            if (.not. associated(hecMAT0)) then
++              call fstr_StiffMatrix( hecMESH, hecMAT, fstrSOLID, fstrDYNAMIC%t_curr, fstrDYNAMIC%t_delta )
++              allocate(hecMAT0)
++              call hecmw_mat_init(hecMAT0)
++              call hecmw_mat_copy_profile(hecMAT, hecMAT0)
++              call hecmw_mat_copy_val(hecMAT, hecMAT0)
++            else
++              call hecmw_mat_copy_val(hecMAT0, hecMAT)
++            endif
++          endif
+ 
+           if( fstrDYNAMIC%ray_k/=0.d0 .or. fstrDYNAMIC%ray_m/=0.d0 ) then
+             do j = 1 ,ndof*nnod
+@@ -234,7 +249,7 @@ contains
+ 
+           !res = dsqrt(bsize)/n_node_global
+           res = dsqrt(bsize/resb)
+-          if( ndof /= 4 ) then
++          if( fstrPARAM%nlgeom .and. ndof /= 4 ) then
+             if(hecMESH%my_rank==0) write(*,'(a,i5,a,1pe12.4)')"iter: ",iter,", res: ",res
+             if(hecMESH%my_rank==0) write(ISTA,'(''iter='',I5,''- Residual'',E15.7)')iter,res
+             if( res<fstrSOLID%step_ctrl(cstep)%converg ) exit
+@@ -243,14 +258,18 @@ contains
+           !C-- linear solver [A]{X} = {B}
+           hecMATmpc%X = 0.0d0
+           if( iexit .ne. 1 ) then
+-            if( iter == 1 ) then
+-              hecMATmpc%Iarray(97) = 2   !Force numerical factorization
+-            else
+-              hecMATmpc%Iarray(97) = 1   !Need numerical factorization
++            if( fstrPARAM%nlgeom ) then
++              if( iter == 1 ) then
++                hecMATmpc%Iarray(97) = 2   !Force numerical factorization
++              else
++                hecMATmpc%Iarray(97) = 1   !Need numerical factorization
++              endif
++              call fstr_set_current_config_to_mesh(hecMESH,fstrSOLID,coord)
+             endif
+-            call fstr_set_current_config_to_mesh(hecMESH,fstrSOLID,coord)
+             call solve_LINEQ(hecMESH,hecMATmpc)
+-            call fstr_recover_initial_config_to_mesh(hecMESH,fstrSOLID,coord)
++            if( fstrPARAM%nlgeom ) then
++              call fstr_recover_initial_config_to_mesh(hecMESH,fstrSOLID,coord)
++            endif
+           endif
+           call hecmw_mpc_tback_sol(hecMESH, hecMAT, hecMATmpc)
+ 
+@@ -261,6 +280,7 @@ contains
+           call fstr_UpdateNewton( hecMESH, hecMAT, fstrSOLID, fstrDYNAMIC%t_curr, &
+             &  fstrDYNAMIC%t_delta, iter, fstrDYNAMIC%strainEnergy )
+ 
++          if(.not. fstrPARAM%nlgeom) exit
+           if(ndof == 4) exit
+         enddo
+ 
+@@ -379,6 +399,10 @@ contains
+ 
+     deallocate(coord)
+     call hecmw_mpc_mat_finalize(hecMESH, hecMAT, hecMATmpc)
++    if (associated(hecMAT0)) then
++      call hecmw_mat_finalize(hecMAT0)
++      deallocate(hecMAT0)
++    endif
+   end subroutine fstr_solve_dynamic_nlimplicit
+ 
+   !> \brief This subroutine provides function of nonlinear implicit dynamic analysis using the Newmark method.
+diff --git a/fistr1/src/analysis/heat/heat_mat_ass_capacity.f90 b/fistr1/src/analysis/heat/heat_mat_ass_capacity.f90
+index 55b3dd02..17d8c297 100644
+--- a/fistr1/src/analysis/heat/heat_mat_ass_capacity.f90
++++ b/fistr1/src/analysis/heat/heat_mat_ass_capacity.f90
+@@ -61,6 +61,9 @@ contains
+             fstrHEAT%CPtab(IMAT), fstrHEAT%CPtemp(IMAT,:), fstrHEAT%CPfuncA(IMAT,:) ,fstrHEAT%CPfuncB(IMAT,:), &
+             fstrHEAT%RHOtab(IMAT), fstrHEAT%RHOtemp(IMAT,:), fstrHEAT%RHOfuncA(IMAT,:), fstrHEAT%RHOfuncB(IMAT,:))
+ 
++        elseif (ic_type == 541) then
++          ! skip warning
++
+         elseif(ic_type == 731)then
+           in = hecMesh%section%sect_R_index(isect)
+           thick = hecMESH%section%sect_R_item(in)
+diff --git a/fistr1/src/analysis/static/static_output.f90 b/fistr1/src/analysis/static/static_output.f90
+index fc50bd7a..afe227a6 100644
+--- a/fistr1/src/analysis/static/static_output.f90
++++ b/fistr1/src/analysis/static/static_output.f90
+@@ -31,11 +31,11 @@ contains
+ 
+     if( fstrSOLID%TEMP_ngrp_tot>0 .or. fstrSOLID%TEMP_irres>0 ) then
+       if( ndof==3 ) then
+-        allocate( fstrSOLID%tnstrain(hecMESH%n_node*6) )
+-        allocate( fstrSOLID%testrain(hecMESH%n_elem*6) )
++        if( .not. associated(fstrSOLID%tnstrain) ) allocate( fstrSOLID%tnstrain(hecMESH%n_node*6) )
++        if( .not. associated(fstrSOLID%testrain) ) allocate( fstrSOLID%testrain(hecMESH%n_elem*6) )
+       else if( ndof==2 ) then
+-        allocate( fstrSOLID%tnstrain(hecMESH%n_node*3) )
+-        allocate( fstrSOLID%testrain(hecMESH%n_elem*3) )
++        if( .not. associated(fstrSOLID%tnstrain) ) allocate( fstrSOLID%tnstrain(hecMESH%n_node*3) )
++        if( .not. associated(fstrSOLID%testrain) ) allocate( fstrSOLID%testrain(hecMESH%n_elem*3) )
+       endif
+     endif
+ 
+diff --git a/fistr1/src/common/fstr_setup.f90 b/fistr1/src/common/fstr_setup.f90
+index f9cbcd98..3a13b9af 100644
+--- a/fistr1/src/common/fstr_setup.f90
++++ b/fistr1/src/common/fstr_setup.f90
+@@ -334,12 +334,14 @@ contains
+     if( hecMESH%material%n_mat>n ) n= hecMESH%material%n_mat
+     if( n==0 ) stop "material property not defined!"
+     allocate( fstrSOLID%materials( n ) )
++    do i = 1, n
++      call initMaterial(fstrSOLID%materials(i))
++    enddo
+     if( hecMESH%section%n_sect >0 ) then
+       do i=1,hecMESH%section%n_sect
+         if( hecMESH%section%sect_type(i) == 4 ) cycle
+         cid = hecMESH%section%sect_mat_ID_item(i)
+         if( cid>n ) stop "Error in material property definition!"
+-        call initMaterial(  fstrSOLID%materials(cid) )
+         if( fstrPARAM%nlgeom .or. fstrPARAM%solution_type==kstSTATICEIGEN ) &
+           fstrSOLID%materials(cid)%nlgeom_flag = 1
+         nullify(shmat)
+diff --git a/fistr1/src/lib/physics/ElasticNeoHooke.f90 b/fistr1/src/lib/physics/ElasticNeoHooke.f90
+deleted file mode 100644
+index 5637f744..00000000
+--- a/fistr1/src/lib/physics/ElasticNeoHooke.f90
++++ /dev/null
+@@ -1,212 +0,0 @@
+-!-------------------------------------------------------------------------------
+-! Copyright (c) 2019 FrontISTR Commons
+-! This software is released under the MIT License, see LICENSE.txt
+-!-------------------------------------------------------------------------------
+-!> \brief  This module provides function on NEO-HOOKEAN hyperelastic material
+-!> \par neo-Hookean hyperelastic material
+-!>  - potential function : \f$ \Psi = \frac{\mu}{2} ( I_{c}-3 ) - \mu \ln J + \frac{\lambda}{2} ( \ln J )^2 \f$
+-!>  - 2nd Piola-Kirchhoff stress : \f$ \mathbf{S} = \mu ( \mathbf{I} - \mathbf{C}^{-1} ) + \lambda ( \ln J ) \mathbf{C}^{-1} \f$
+-!>  - elastic tangent coefficient : \f$ \mathbf{\mathsf{C}} = \lambda \mathbf{C}^{-1} \otimes \mathbf{C}^{-1} + 2 ( \mu - \lambda \ln J ) \mathbf{I} \f$
+-module m_ElasticNeoHooke
+-  use mMaterial
+-  implicit none
+-  integer, parameter, private :: kreal = kind(0.0d0)
+-  contains
+-
+-!-------------------------------------------------------------------------------
+-!> \brief This subroutine provides elastic tangent coefficient for neo-Hookean material
+-!-------------------------------------------------------------------------------
+-  subroutine calElasticNeoHooke( matl, sectType, cijkl, ftn )
+-!
+-    type( tMaterial ), intent(in) :: matl            !> material properties
+-    integer, intent(in)           :: sectType        !> not used currently
+-    real(kind=kreal), intent(out) :: cijkl(3,3,3,3)  !> \f$ \mathbf{\mathsf{C}} \f$ Elastic tanget coefficient
+-    real(kind=kreal), INTENT(IN)  :: ftn(:,:)        !> \f$ \mathbf{F}_{n+1}^{(k)} \f$ deformation gradient tensor ( \f$ \mathbf{F} = \mathbf{I} + \mathbf{u}_{n+1}^{(k)} \otimes \mathbf{\nabla}_{X} \f$ )
+-!
+-    integer :: i, j, k, l
+-    real(kind=kreal) :: ctn(3,3)     !< right Cauchy-Green deformation tensor
+-    real(kind=kreal) :: ctninv(3,3)  !< inversion of right Cauchy-Green deformation tensor
+-    real(kind=kreal) :: det, dum
+-    real(kind=kreal) :: cc(3,3,3,3), ii(3,3,3,3), delta(3,3)
+-    real(kind=kreal) :: ee, pp, lambda, mu
+-    real(kind=kreal) :: lnJ
+-!
+-! ----- Lame coefficients
+-    ee = matl%variables(M_YOUNGS)
+-    pp = matl%variables(M_POISSON)
+-    lambda = pp*ee/(1.d0+pp)/(1.d0-2.d0*pp)
+-    mu     = ee/2.d0/(1.d0+pp)
+-!
+-! ----- calculate the right Cauchy-Green deformation tensor C
+-    ctn(:,:)    = 0.d0
+-    do i=1,3
+-      do j=1,3
+-        do k=1,3
+-          ctn(i,j) = ctn(i,j) + ftn(k,i)*ftn(k,j)
+-        enddo
+-      enddo
+-    enddo
+-!
+-! ---- inverse of right Cauchy-Green deformation tensor
+-!    --- determinant of Jacobian
+-    det=ctn(1,1)*ctn(2,2)*ctn(3,3)                                             &
+-       +ctn(2,1)*ctn(3,2)*ctn(1,3)                                             &
+-       +ctn(3,1)*ctn(1,2)*ctn(2,3)                                             &
+-       -ctn(3,1)*ctn(2,2)*ctn(1,3)                                             &
+-       -ctn(2,1)*ctn(1,2)*ctn(3,3)                                             &
+-       -ctn(1,1)*ctn(3,2)*ctn(2,3)
+-    if( det==0.d0 ) stop "Math error in ctn(right CG deformation tensor) Determinaut==0.0"
+-! ----- calculate the \ln J
+-    lnJ = 0.5d0*log(det)
+-!
+-!    --- inversion of Jacobian
+-    ctninv(:,:) = 0.d0
+-    dum=1.d0/det
+-    ctninv(1,1)=dum*( ctn(2,2)*ctn(3,3)-ctn(3,2)*ctn(2,3) )
+-    ctninv(1,2)=dum*(-ctn(1,2)*ctn(3,3)+ctn(3,2)*ctn(1,3) )
+-    ctninv(1,3)=dum*( ctn(1,2)*ctn(2,3)-ctn(2,2)*ctn(1,3) )
+-    ctninv(2,1)=dum*(-ctn(2,1)*ctn(3,3)+ctn(3,1)*ctn(2,3) )
+-    ctninv(2,2)=dum*( ctn(1,1)*ctn(3,3)-ctn(3,1)*ctn(1,3) )
+-    ctninv(2,3)=dum*(-ctn(1,1)*ctn(2,3)+ctn(2,1)*ctn(1,3) )
+-    ctninv(3,1)=dum*( ctn(2,1)*ctn(3,2)-ctn(3,1)*ctn(2,2) )
+-    ctninv(3,2)=dum*(-ctn(1,1)*ctn(3,2)+ctn(3,1)*ctn(1,2) )
+-    ctninv(3,3)=dum*( ctn(1,1)*ctn(2,2)-ctn(2,1)*ctn(1,2) )
+-!
+-! ----- calculation the \bm{C}^{-1} \otimes \bm{C}^{-1}
+-    cc(:,:,:,:) = 0.d0
+-    do i=1,3
+-      do j=1,3
+-        do k=1,3
+-          do l=1,3
+-            cc(i,j,k,l) = cc(i,j,k,l) + ctninv(i,j)*ctninv(k,l)
+-          enddo
+-        enddo
+-      enddo
+-    enddo
+-!
+-! ----- calculation the \bm{\mathsf{I}}
+-    ii(:,:,:,:) = 0.d0
+-    do i=1,3
+-      do j=1,3
+-        do k=1,3
+-          do l=1,3
+-            ii(i,j,k,l) = 0.5d0*( ctninv(i,k)*ctninv(j,l)         &
+-                                 + ctninv(i,l)*ctninv(j,k) )
+-          enddo
+-        enddo
+-      enddo
+-    enddo
+-!
+-! ----- elastic tanget coefficients for neo-Hooke hyperelastic model
+-!    \bm{\mathsf{C}} = \lambda \bm{C}^{-1} \otimes \bm{C}^{-1} + 2 ( \mu - \lambda \ln J ) \bm{\mathsf{I}}
+-    cijkl(:,:,:,:) = 0.d0
+-    do i=1,3
+-      do j=1,3
+-        do k=1,3
+-          do l=1,3
+-            cijkl(i,j,k,l) = lambda*cc(i,j,k,l) + 2.d0*(mu-lambda*lnJ)*ii(i,j,k,l)
+-          enddo
+-        enddo
+-      enddo
+-    enddo
+-!
+-  end subroutine calElasticNeoHooke
+-!
+-!
+-!
+-!-------------------------------------------------------------------------------
+-!> \brief This subroutine provides to update stress and strain for neo-Hookean material
+-!-------------------------------------------------------------------------------
+-  subroutine calUpdateElasticNeoHooke( matl, sectType, dstrain, dstress, ftn )
+-    type( tMaterial ), intent(in) :: matl           !> material properties
+-    integer, intent(in)           :: sectType       !> not used currently
+-    real(kind=kreal), intent(out) :: dstrain(6)     !> \f$ \mathbf{E} \f$ Cauchy-Green strain
+-    real(kind=kreal), intent(out) :: dstress(6)     !> \f$ \mathbf{S} \f$ 2nd Piola-Kirchhoff stress
+-    real(kind=kreal), intent(in)  :: ftn(:,:)       !> \f$ \mathbf{F}_{n+1}^{(k)} \f$ deformation gradient tensor ( \f$ \mathbf{F} = \mathbf{I} + \mathbf{u}_{n+1}^{(k)} \otimes \mathbf{\nabla}_{X} \f$ )
+-!
+-    integer :: i, j, k
+-    real(kind=kreal) :: ctn(3,3), itn(3,3)
+-    real(kind=kreal) :: ctninv(3,3)
+-    real(kind=kreal) :: det, dum
+-    real(kind=kreal) :: ee, pp, lambda, mu
+-    real(kind=kreal) :: lnJ
+-    real(kind=kreal) :: CGstrain(3,3), PKstress(3,3)
+-!
+-    real(kind=kreal) :: volJ
+-    real(kind=kreal) :: sf(3,3), cauchy(3,3), mises
+-!
+-! ----- Lame coefficients
+-    ee = matl%variables(M_YOUNGS)
+-    pp = matl%variables(M_POISSON)
+-    lambda = pp*ee/(1.d0+pp)/(1.d0-2.d0*pp)
+-    mu     = ee/2.d0/(1.d0+pp)
+-!
+-! ----- calculate the right Cauchy-Green deformation tensor C
+-    ctn(:,:)    = 0.d0
+-    do i=1,3
+-      do j=1,3
+-        do k=1,3
+-          ctn(i,j) = ctn(i,j) + ftn(k,i)*ftn(k,j)
+-        enddo
+-      enddo
+-    enddo
+-!
+-! ----- calculate the right Cauchy-Green deformation tensor C
+-    itn(:,:)   = 0.d0
+-    do i=1,3
+-      itn(i,i) = 1.d0
+-    enddo
+-!
+-! ---- inverse of right Cauchy-Green deformation tensor
+-!    --- determinant of Jacobian
+-    det=ctn(1,1)*ctn(2,2)*ctn(3,3)                                             &
+-       +ctn(2,1)*ctn(3,2)*ctn(1,3)                                             &
+-       +ctn(3,1)*ctn(1,2)*ctn(2,3)                                             &
+-       -ctn(3,1)*ctn(2,2)*ctn(1,3)                                             &
+-       -ctn(2,1)*ctn(1,2)*ctn(3,3)                                             &
+-       -ctn(1,1)*ctn(3,2)*ctn(2,3)
+-    if( det==0.d0 ) stop "Math error in ctn(right CG deformation tensor) Determinaut==0.0"
+-!    --- inversion of Jacobian
+-    ctninv(:,:)   = 0.d0
+-    dum=1.d0/det
+-    ctninv(1,1)=dum*( ctn(2,2)*ctn(3,3)-ctn(3,2)*ctn(2,3) )
+-    ctninv(1,2)=dum*(-ctn(1,2)*ctn(3,3)+ctn(3,2)*ctn(1,3) )
+-    ctninv(1,3)=dum*( ctn(1,2)*ctn(2,3)-ctn(2,2)*ctn(1,3) )
+-    ctninv(2,1)=dum*(-ctn(2,1)*ctn(3,3)+ctn(3,1)*ctn(2,3) )
+-    ctninv(2,2)=dum*( ctn(1,1)*ctn(3,3)-ctn(3,1)*ctn(1,3) )
+-    ctninv(2,3)=dum*(-ctn(1,1)*ctn(2,3)+ctn(2,1)*ctn(1,3) )
+-    ctninv(3,1)=dum*( ctn(2,1)*ctn(3,2)-ctn(3,1)*ctn(2,2) )
+-    ctninv(3,2)=dum*(-ctn(1,1)*ctn(3,2)+ctn(3,1)*ctn(1,2) )
+-    ctninv(3,3)=dum*( ctn(1,1)*ctn(2,2)-ctn(2,1)*ctn(1,2) )
+-!
+-! ----- calculate the \ln J
+-    lnJ = 0.5d0*log(det)
+-!
+-! ----- calculate the strain
+-    CGstrain(:,:) = 0.d0
+-    CGstrain(1:3,1:3) = 0.5d0*( ctn(1:3,1:3) - itn(1:3,1:3) )
+-!
+-! ----- calculate the stress
+-    PKstress(:,:) = 0.d0
+-    PKstress(1:3,1:3) = mu*( itn(1:3,1:3) - ctninv(1:3,1:3) ) + lambda*lnJ*ctninv(1:3,1:3)
+-!
+-    dstrain(:)    = 0.d0
+-    dstress(:)    = 0.d0
+-!
+-    dstrain(1) = CGstrain(1,1)
+-    dstrain(2) = CGstrain(2,2)
+-    dstrain(3) = CGstrain(3,3)
+-    dstrain(4) = 0.5d0*( CGstrain(1,2) + CGstrain(2,1) )
+-    dstrain(5) = 0.5d0*( CGstrain(2,3) + CGstrain(3,2) )
+-    dstrain(6) = 0.5d0*( CGstrain(1,3) + CGstrain(3,1) )
+-!
+-    dstress(1) = PKstress(1,1)
+-    dstress(2) = PKstress(2,2)
+-    dstress(3) = PKstress(3,3)
+-    dstress(4) = 0.5d0*( PKstress(1,2) + PKstress(2,1) )
+-    dstress(5) = 0.5d0*( PKstress(2,3) + PKstress(3,2) )
+-    dstress(6) = 0.5d0*( PKstress(1,3) + PKstress(3,1) )
+-
+-  end subroutine
+-
+-end module m_ElasticNeoHooke
+diff --git a/fistr1/src/lib/physics/material.f90 b/fistr1/src/lib/physics/material.f90
+index 12ce590d..1fee11ad 100644
+--- a/fistr1/src/lib/physics/material.f90
++++ b/fistr1/src/lib/physics/material.f90
+@@ -167,7 +167,7 @@ contains
+   subroutine finalizeMaterial( material )
+     type( tMaterial ), intent(inout) :: material
+     if( associated(material%table) ) deallocate( material%table )
+-    call dict_destroy( material%dict )
++    if( associated(material%dict) ) call dict_destroy( material%dict )
+   end subroutine finalizeMaterial
+ 
+   !> Initializer
+diff --git a/fistr1/src/main/fistr_main.f90 b/fistr1/src/main/fistr_main.f90
+index e36ec851..88cef183 100644
+--- a/fistr1/src/main/fistr_main.f90
++++ b/fistr1/src/main/fistr_main.f90
+@@ -52,6 +52,8 @@ contains
+     name_ID = 'fstrMSH'
+     call hecmw_get_mesh( name_ID , hecMESH )
+ 
++    call hecmw_tuning_reorder_do(hecMESH, 20, 20, 20, 0.1d0)
++
+     if( hecMESH%contact_pair%n_pair > 0 ) then
+       if( nprocs > 1 .and. &
+           hecMESH%hecmw_flag_partcontact /= HECMW_FLAG_PARTCONTACT_AGGREGATE ) then
+diff --git a/hecmw1/src/common/CMakeLists.txt b/hecmw1/src/common/CMakeLists.txt
+index 6d700e95..4004cab9 100644
+--- a/hecmw1/src/common/CMakeLists.txt
++++ b/hecmw1/src/common/CMakeLists.txt
+@@ -71,6 +71,7 @@ list(APPEND hecmw_SOURCES
+   ${CMAKE_CURRENT_LIST_DIR}/hecmw_visualizer_f.f90
+   ${CMAKE_CURRENT_LIST_DIR}/hecmw_etype_f.f90
+   ${CMAKE_CURRENT_LIST_DIR}/hecmw_io.f90
++  ${CMAKE_CURRENT_LIST_DIR}/hecmw_tuning_node_block_reorder_f.f90
+ )
+ 
+ list(APPEND hecmw_INCLUDE_DIRS
+diff --git a/hecmw1/src/common/Makefile.am b/hecmw1/src/common/Makefile.am
+index 04eae975..e2eb4db6 100644
+--- a/hecmw1/src/common/Makefile.am
++++ b/hecmw1/src/common/Makefile.am
+@@ -156,7 +156,8 @@ OBJSF = \
+ 	hecmw_dist_print_f.@f90objfilepostfix@ \
+ 	hecmw_visualizer_f.@f90objfilepostfix@ \
+ 	hecmw_etype_f.@f90objfilepostfix@ \
+-	hecmw_io.@f90objfilepostfix@
++	hecmw_io.@f90objfilepostfix@ \
++        hecmw_tuning_node_block_reorder_f.@f90objfilepostfix@
+ 
+ HEADERS = \
+ 	hecmw_hash.h\
+diff --git a/hecmw1/src/common/hecmw_io.f90 b/hecmw1/src/common/hecmw_io.f90
+index 8f982474..f6e50f73 100644
+--- a/hecmw1/src/common/hecmw_io.f90
++++ b/hecmw1/src/common/hecmw_io.f90
+@@ -12,6 +12,7 @@ module hecmw_io
+   use hecmw_dist_print_f
+   use hecmw_result
+   use hecmw_restart
++  use hecmw_tuning_node_block_reorder
+   implicit none
+ 
+   public :: hecmw_get_mesh
+@@ -39,6 +40,9 @@ contains
+     call hecmw_get_mesh_finalize_if(ierr)
+     if(ierr /=0) call hecmw_abort(hecmw_comm_get_comm())
+ 
++    call hecmw_tuning_reorder_init(mesh, ierr)
++    if(ierr /=0) call hecmw_abort(hecmw_comm_get_comm())
++
+   end subroutine hecmw_get_mesh
+ 
+ 
+diff --git a/hecmw1/src/common/hecmw_io_hec.c b/hecmw1/src/common/hecmw_io_hec.c
+index 2701a7bd..89913dbf 100644
+--- a/hecmw1/src/common/hecmw_io_hec.c
++++ b/hecmw1/src/common/hecmw_io_hec.c
+@@ -1413,7 +1413,7 @@ static int read_equation_data_line2(int neq, double cnst) {
+   int is_ngrp     = 0;
+   int is_link     = 0;
+   int is_beam     = 0;
+-  const int NITEM = 7;
++  const int NITEM = 100;
+   char *p;
+   struct hecmw_io_mpcitem *mpcitem;
+   bool isAllDof = false;
+diff --git a/hecmw1/src/common/hecmw_result_f.f90 b/hecmw1/src/common/hecmw_result_f.f90
+index 8eeabe0d..3b9ab272 100644
+--- a/hecmw1/src/common/hecmw_result_f.f90
++++ b/hecmw1/src/common/hecmw_result_f.f90
+@@ -44,6 +44,12 @@ module hecmw_result
+   private
+   character(len=HECMW_NAME_LEN) :: sname,vname
+ 
++  ! for PERFORMANCE TUNING (BLOCK REORDERED NODE ID)
++  logical :: tuning_block_reorder_on
++  integer(kind=kint), pointer :: nid_new2org(:) ! logical node ID reorder table (reordered => original)
++  integer(kind=kint), pointer :: org_order_global_node_ID(:)
++  integer(kind=kint) :: nnode, nelem
++
+ contains
+ 
+   !C=============================================================================
+@@ -70,13 +76,26 @@ contains
+   subroutine hecmw_result_init(hecMESH, i_step, header, comment)
+     type(hecmwST_local_mesh):: hecMESH
+     integer(kind=kint) :: nnode, nelem, i_step, ierr
++    integer :: i, org_id
+     character(len=HECMW_HEADER_LEN) :: header
+     character(len=HECMW_MSG_LEN) :: comment
+ 
+     nnode = hecMESH%n_node
+     nelem = hecMESH%n_elem
+ 
+-    call hecmw_result_init_if(nnode, nelem, hecMESH%global_node_ID, hecMESH%global_elem_ID, i_step, header, comment, ierr)
++    ! TUNING BLOCK NODE REORDER
++    tuning_block_reorder_on = hecMESH%tuning_block_reorder_on
++
++    allocate(nid_new2org(nnode))
++    nid_new2org(:) = hecMESH%tuning_block_reorder_new2old(:)
++
++    allocate(org_order_global_node_ID(nnode))
++    do i = 1, nnode
++      org_id = nid_new2org(i)
++      org_order_global_node_ID(org_id) = hecMESH%global_node_ID(i)
++    end do
++
++    call hecmw_result_init_if(nnode, nelem, org_order_global_node_ID, hecMESH%global_elem_ID, i_step, header, comment, ierr)
+     if(ierr /= 0) call hecmw_abort(hecmw_comm_get_comm())
+   end subroutine hecmw_result_init
+ 
+@@ -85,9 +104,37 @@ contains
+     integer(kind=kint) :: dtype, n_dof, ierr
+     character(len=HECMW_NAME_LEN) :: label
+     real(kind=kreal) :: data(:)
++    real(kind=kreal), allocatable :: org_order_data(:)
++    integer :: i, j, ofset_org, ofset_new, org_id
++
++    if (dtype == 1) then ! node
++      if (tuning_block_reorder_on) then ! reorderd node ID
++        allocate(org_order_data(size(data)))
++
++        do i = 1, nnode
++          org_id = nid_new2org(i)
++          ofset_org = (org_id - 1) * n_dof
++          ofset_new = (i      - 1) * n_dof
++          do j = 1, n_dof
++            org_order_data(ofset_org + j) = data(ofset_new + j)
++          end do
++        end do
++
++        call hecmw_result_add_if(dtype, n_dof, label, org_order_data, ierr)
++        if (ierr /= 0) call hecmw_abort(hecmw_comm_get_comm())
++        deallocate(org_order_data)
++
++      else ! original node ID
++        call hecmw_result_add_if(dtype, n_dof, label, data, ierr)
++        if (ierr /= 0) call hecmw_abort(hecmw_comm_get_comm())
++      end if
++    else if (dtype == 2) then !elem
++      call hecmw_result_add_if(dtype, n_dof, label, data, ierr)
++      if (ierr /= 0) call hecmw_abort(hecmw_comm_get_comm())
++    else
++      return ! NEVER COME HERE (not node, not elem)
++    end if
+ 
+-    call hecmw_result_add_if(dtype, n_dof, label, data, ierr)
+-    if(ierr /= 0) call hecmw_abort(hecmw_comm_get_comm())
+   end subroutine hecmw_result_add
+ 
+ 
+diff --git a/hecmw1/src/common/hecmw_tuning_node_block_reorder_f.f90 b/hecmw1/src/common/hecmw_tuning_node_block_reorder_f.f90
+new file mode 100644
+index 00000000..b56eeca0
+--- /dev/null
++++ b/hecmw1/src/common/hecmw_tuning_node_block_reorder_f.f90
+@@ -0,0 +1,1447 @@
++!-------------------------------------------------------------------------------
++! Copyright (c) 2016 The University of Tokyo
++! This software is released under the MIT License, see LICENSE.txt
++!-------------------------------------------------------------------------------
++module hecmw_tuning_node_block_reorder
++  use hecmw_util
++  implicit none
++
++
++  private ! default
++
++  public :: hecmw_tuning_reorder_init
++  public :: hecmw_tuning_reorder_do
++
++
++  !C
++  !C***
++  !C*** TYPE definition
++  !C***
++  !C
++
++  type tVector
++    integer(kind=kint) :: n
++    integer(kind=kint) :: maxn
++    logical            :: sorted
++    integer(kind=kint), allocatable :: vec(:)
++  end type
++
++
++contains !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++
++  !C
++  !C***
++  !C*** SUBROUTINES
++  !C***
++  !C
++  !!!!!!! --- add connectivity_reorder start --- !!!!!!!
++  subroutine tVecInit(tvec,init_maxn)
++    type(tVector), intent(inout)   :: tvec
++    integer(kind=kint),intent(in)  :: init_maxn
++
++    tvec%n = 0
++    tvec%maxn = init_maxn
++    allocate(tvec%vec(init_maxn))
++    tvec%vec(1:init_maxn) = 0
++    tvec%sorted = .true.
++  end subroutine
++
++  subroutine tVecPrint(tvec)
++    type(tVector), intent(inout)   :: tvec
++
++    write(*,*) 'n,maxn',tvec%n,tvec%maxn
++    write(*,*) tvec%vec(1:tvec%n)
++  end subroutine
++
++  subroutine tVecAdd(tvec,item)
++    type(tVector), intent(inout)   :: tvec
++    integer(kind=kint),intent(in)  :: item
++
++    integer(kind=kint) :: maxn_old
++    integer(kind=kint), allocatable :: tmp(:)
++
++    if( tvec%n == tvec%maxn ) then
++      maxn_old = tvec%maxn
++      allocate(tmp(maxn_old))
++      tmp(1:maxn_old) = tvec%vec(1:maxn_old)
++      deallocate(tvec%vec)
++
++      if( maxn_old < 1000 ) then
++        tvec%maxn = min(maxn_old*2,1000)
++      else
++        tvec%maxn = maxn_old+1000
++      end if
++
++      allocate(tvec%vec(tvec%maxn))
++      tvec%vec(1:maxn_old) = tmp(1:maxn_old)
++      tvec%vec(maxn_old+1:tvec%maxn) = 0
++      deallocate(tmp)
++    end if
++
++    tvec%n = tvec%n + 1
++    tvec%vec(tvec%n) = item
++
++  end subroutine
++
++  recursive subroutine sort_int_array(array, istart, iend)
++    implicit none
++    integer(kind=kint), intent(inout) :: array(:)
++    integer(kind=kint), intent(in) :: istart, iend
++    integer(kind=kint) :: left, right, center
++    integer(kind=kint) :: pivot, tmp
++    if (istart >= iend) return
++    center = (istart + iend) / 2
++    pivot = array(center)
++    left = istart
++    right = iend
++    do
++      do while (array(left) < pivot)
++        left = left + 1
++      end do
++      do while (pivot < array(right))
++        right = right - 1
++      end do
++      if (left >= right) exit
++      tmp = array(left)
++      array(left) = array(right)
++      array(right) = tmp
++      left = left + 1
++      right = right - 1
++    end do
++    if (istart < left-1) call sort_int_array(array, istart, left-1)
++    if (right+1 < iend) call sort_int_array(array, right+1, iend)
++  end subroutine sort_int_array
++
++  recursive subroutine sort_int_array2(array, istart, iend)
++    implicit none
++    integer(kind=kint), intent(inout) :: array(:,:)
++    integer(kind=kint), intent(in) :: istart, iend
++    integer(kind=kint) :: left, right, center
++    integer(kind=kint) :: pivot, tmp(2)
++    if (istart >= iend) return
++    center = (istart + iend) / 2
++    pivot = array(2,center)
++    left = istart
++    right = iend
++    do
++      do while (array(2,left) < pivot)
++        left = left + 1
++      end do
++      do while (pivot < array(2,right))
++        right = right - 1
++      end do
++      if (left >= right) exit
++      tmp(1:2) = array(1:2,left)
++      array(1:2,left) = array(1:2,right)
++      array(1:2,right) = tmp
++      left = left + 1
++      right = right - 1
++    end do
++    if (istart < left-1) call sort_int_array2(array, istart, left-1)
++    if (right+1 < iend) call sort_int_array2(array, right+1, iend)
++  end subroutine sort_int_array2
++
++  subroutine tVecCompress(tvec)
++    type(tVector), intent(inout)   :: tvec
++
++    integer(kind=kint) :: i, idx
++
++    call sort_int_array(tvec%vec, 1, tvec%n)
++    idx = 1
++    do i=1,tvec%n-1
++      if( tvec%vec(i+1) == tvec%vec(i) ) cycle
++      idx = idx + 1
++      tvec%vec(idx) = tvec%vec(i+1)
++    end do
++    tvec%n = idx
++  end subroutine
++
++  subroutine tVecFinilize(tvec)
++    type(tVector), intent(inout)   :: tvec
++    deallocate(tvec%vec)
++  end subroutine
++  !!!!!!! --- add connectivity_reorder end --- !!!!!!!
++
++  !C
++  !C    INIT variables.
++  !C
++  subroutine hecmw_tuning_reorder_init(hecMESH, ierr)
++
++    type (hecmwST_local_mesh), intent(inout) :: hecMESH
++    integer(kind=kint) :: ierr
++
++    integer :: i
++
++    allocate(hecMESH%tuning_block_reorder_old2new(hecMESH%n_node))
++    allocate(hecMESH%tuning_block_reorder_new2old(hecMESH%n_node))
++
++    do i=1, hecMESH%n_node
++      hecMESH%tuning_block_reorder_new2old(i)=i
++      hecMESH%tuning_block_reorder_old2new(i)=i
++    end do
++
++    hecMESH%tuning_block_reorder_on   = .FALSE.
++
++    ierr=0
++  end subroutine hecmw_tuning_reorder_init
++
++
++  subroutine hecmw_tuning_reorder_do(hecMESH,    &
++                                     block_numx, &
++                                     block_numy, &
++                                     block_numz, &
++                                     block_inout_ratio)
++
++    type (hecmwST_local_mesh), intent(inout) :: hecMESH
++    integer(kind=kint), intent(in), optional :: block_numx
++    integer(kind=kint), intent(in), optional :: block_numy
++    integer(kind=kint), intent(in), optional :: block_numz
++    real(kind=kreal),   intent(in), optional :: block_inout_ratio
++
++    integer(kind=kint) :: numx, numy, numz
++    real(kind=kreal)   :: ratio
++
++    hecMESH%tuning_block_reorder_on = .TRUE.
++
++    ! default block reordering parameter
++    numx  = 10
++    numy  = 10
++    numz  = 10
++    ratio = 0.1
++
++    if (present(block_numx)) then
++      if (block_numx <= 1) then
++        numx = 1
++      else
++        numx = block_numx
++      end if
++    end if
++
++    if (present(block_numy)) then
++      if (block_numy <= 1) then
++        numy = 1
++      else
++        numy = block_numy
++      end if
++    end if
++
++    if (present(block_numz)) then
++      if (block_numz <= 1) then
++        numz = 1
++      else
++        numz = block_numz
++      end if
++    end if
++
++    if (present(block_inout_ratio)) then
++      if (block_inout_ratio <= 0.001) then
++        ratio = 0.001
++      else if (block_inout_ratio >= 0.999) then
++        ratio = 0.999
++      else
++        ratio = block_inout_ratio
++      end if
++    end if
++
++    call make_reorder_table(hecMESH, numx, numy, numz, ratio)
++
++    call reorder_local_node_ID(hecMESH)
++
++  end subroutine hecmw_tuning_reorder_do
++
++
++  subroutine reorder_local_node_ID(hecMESH)
++
++    type (hecmwST_local_mesh), intent(inout) :: hecMESH
++    integer :: i, ndof, new_id, nnode
++
++    real(kind=kreal), pointer   :: new_node(:)
++    real(kind=kreal), pointer   :: old_node(:)
++
++    integer(kind=kint), pointer :: new_global_node_ID(:)
++    integer(kind=kint), pointer :: old_global_node_ID(:)
++
++    integer(kind=kint), pointer :: new_elem_node_item(:)
++
++    integer(kind=kint), pointer :: new_node_group_grp_item(:)
++
++    integer(kind=kint), pointer :: old2new(:)
++
++    nnode = hecMESH%n_node
++    old2new => hecMESH%tuning_block_reorder_old2new
++
++    ! reorder node coordinate
++    allocate(new_node(nnode*3))
++    do i=1, nnode
++      new_id = old2new(i)
++      new_node(new_id*3  )=hecMESH%node(i*3  )
++      new_node(new_id*3-1)=hecMESH%node(i*3-1)
++      new_node(new_id*3-2)=hecMESH%node(i*3-2)
++    end do
++    deallocate(hecMESH%node)
++    hecMESH%node => new_node
++
++    ! reorder global node ID
++    allocate(new_global_node_ID(nnode))
++    do i=1, nnode
++      new_id = old2new(i)
++      new_global_node_ID(new_id)=hecMESH%global_node_ID(i)
++    end do
++    deallocate(hecMESH%global_node_ID)
++    hecMESH%global_node_ID => new_global_node_ID
++
++    ! reorder local node ID on each element
++    allocate(new_elem_node_item(hecMESH%elem_node_index(hecMESH%n_elem)))
++    do i=1, hecMESH%elem_node_index(hecMESH%n_elem)
++      new_id = old2new(hecMESH%elem_node_item(i))
++      new_elem_node_item(i) = new_id
++    end do
++    deallocate(hecMESH%elem_node_item)
++    hecMESH%elem_node_item => new_elem_node_item
++
++    ! reorder local node ID on node group
++    allocate(new_node_group_grp_item(size(hecMESH%node_group%grp_item)))
++    do i=1, size(hecMESH%node_group%grp_item)
++      new_id = old2new(hecMESH%node_group%grp_item(i))
++      new_node_group_grp_item(i)=new_id
++    end do
++    deallocate(hecMESH%node_group%grp_item)
++    hecMESH%node_group%grp_item => new_node_group_grp_item
++
++    ! reorder communication table
++    if (size(hecMESH%export_item) > 1) then
++      do i=1, size(hecMESH%export_item)
++        new_id = old2new(hecMESH%export_item(i))
++        hecMESH%export_item(i) = new_id
++      end do
++    end if
++
++  end subroutine reorder_local_node_ID
++
++!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++
++  subroutine make_reorder_table(hecMESH, numx, numy, numz, ratio)
++
++    type (hecmwST_local_mesh), intent(inout) :: hecMESH
++    integer(kind=kint),        intent(in)    :: numx, numy, numz
++    real(kind=kreal),          intent(in)    :: ratio
++
++    integer(kind=kint) :: num
++    integer(kind=kint), allocatable :: num_reorder(:)
++    real(kind=kreal), allocatable   :: pos(:,:)
++
++    integer :: i
++
++    num = hecMESH%nn_internal ! only internal nodes are reorderd.
++
++    allocate(pos(3,num))
++    do i=1, num
++      pos(1,i) = hecMESH%node(i*3-2)
++      pos(2,i) = hecMESH%node(i*3-1)
++      pos(3,i) = hecMESH%node(i*3  )
++    end do
++
++    allocate(num_reorder(num))
++
++    !call block_reorder(num,numx,numy,numz,ratio,num_reorder,pos)
++    !call connectivity_reorder(hecMESH,num_reorder)
++    call metis_reorder(hecMESH,1200,num_reorder)
++
++    ! Because reorder table for external nodes are already initialized,
++    ! only internal nodes are updated.
++    do i=1,num
++      hecMESH%tuning_block_reorder_old2new(i) = num_reorder(i)
++      hecMESH%tuning_block_reorder_new2old(num_reorder(i)) = i
++    end do
++
++    deallocate(num_reorder)
++    deallocate(pos)
++
++  end subroutine make_reorder_table
++
++  subroutine metis_reorder(hecMESH,num_per_block,num_reorder)
++    type (hecmwST_local_mesh), intent(in) :: hecMESH
++    integer(kind=kint), intent(in)        :: num_per_block
++    integer(kind=kint), intent(inout)     :: num_reorder(:)
++
++    integer              :: i, numpart
++    type(tVector), allocatable :: n2nlist(:)
++
++    !for metis
++    integer, allocatable :: npart(:)
++
++    !for numbering
++    integer              :: region
++    integer, allocatable :: id_inblock(:)
++    integer, allocatable :: nregion(:), offset(:)
++
++
++    !create node to node list
++    call make_n2nlist(hecMESH,n2nlist)
++
++    ! partition by metis
++    numpart = hecMESH%n_node/num_per_block+1
++    allocate(npart(hecMESH%n_node))
++    call part_by_metis(hecMESH,n2nlist,numpart,npart)
++
++    ! reorder inter-blocks
++    call reorder_interblocks(n2nlist,numpart,npart)
++
++    ! call reorder inblocks
++    allocate(id_inblock(hecMESH%n_node))
++    call reorder_inblocks(n2nlist,hecMESH%node,numpart,npart,id_inblock)
++
++    ! numbering
++    allocate(nregion(0:numpart),offset(0:numpart))
++    nregion(:) = 0
++    offset(:) = 0
++    do i=1,hecMESH%nn_internal
++      nregion(npart(i)) = nregion(npart(i)) + 1
++    end do
++    do i=1,numpart-1
++      offset(i) = nregion(i-1) + offset(i-1)
++    end do
++
++    nregion(:) = 0
++    do i=1,hecMESH%nn_internal
++      region = npart(i)
++      num_reorder(i) = offset(region)+id_inblock(i)
++      nregion(region) = nregion(region) + 1
++    end do
++
++
++    deallocate(nregion,offset)
++
++    deallocate(npart,id_inblock)
++
++  end subroutine
++
++  subroutine reorder_interblocks(n2nlist,numpart,npart)
++    type(tVector), allocatable, intent(in)         :: n2nlist(:)
++    integer(kind=kint), intent(in)                 :: numpart
++    integer(kind=kint), allocatable, intent(inout) :: npart(:)
++
++    integer(kind=kint) :: i,j,k,iter,nnode,con(numpart,numpart)
++    integer(kind=kint) :: pt1,pt2,threshold
++    type(tVector)      :: dcon(numpart),weight(numpart)
++    logical :: used(numpart)
++    integer(kind=kint) :: mini, minw, maxi, maxw, counter, next
++    integer(kind=kint) :: neworder(numpart), reverse_order(numpart)
++
++    nnode = size(n2nlist)
++
++    con(:,:) = 0
++    do i=1,nnode
++      pt1 = npart(i)+1
++      if( pt1 < 1 ) cycle
++      do k=1,n2nlist(i)%n
++        j = n2nlist(i)%vec(k)
++        pt2 = npart(j)+1
++        if( pt2 < 1 ) cycle
++        con(pt1,pt2) = con(pt1,pt2) + 1
++      end do
++    end do
++
++    threshold = 0
++    do i=1,numpart
++      do j=i+1,numpart
++        threshold = threshold + 2*con(i,j)
++      end do
++    end do
++    threshold = threshold/(numpart*numpart*10)
++    !write(*,*) threshold !tmp
++
++    do i=1,numpart
++      call tVecInit(dcon(i),numpart)
++      call tVecInit(weight(i),numpart)
++      do j=1,numpart
++
++        if( i == j ) cycle
++        if( con(i,j) < threshold ) cycle
++        call tVecAdd(dcon(i),j)
++        call tVecAdd(weight(i),con(i,j))
++      end do
++      !write(*,*) "print",i
++      !call tVecPrint(dcon(i))
++      !call tVecPrint(weight(i))
++    end do
++
++    used(:) = .false.
++    next = 0
++    do iter=1,numpart
++      if( next == 0 ) then
++        mini = 0
++        minw = numpart+1
++        do i=1,numpart
++          if( used(i) ) cycle
++          counter = 0
++          do j=1,dcon(i)%n
++            if( used(dcon(i)%vec(j)) ) cycle
++            counter = counter + 1
++          end do
++          if( counter < minw ) then
++            mini = i
++            minw = dcon(i)%n
++          end if
++        end do
++      else
++        mini = next
++      end if
++      neworder(iter) = mini
++      used(mini) = .true.
++
++      ! set next
++      maxi = 0
++      maxw = 0
++      do j=1,dcon(mini)%n
++        if( used(dcon(mini)%vec(j)) ) cycle
++        if( weight(mini)%vec(j) > maxw ) then
++          maxw = weight(mini)%vec(j)
++          maxi = dcon(mini)%vec(j)
++        end if
++      end do
++      next = maxi
++    end do
++
++    do i=1,numpart
++      reverse_order(neworder(i)) = i
++    end do
++
++    do i=1,nnode
++      pt1 = npart(i)+1
++      if( pt1 < 1 ) cycle
++      pt2 = reverse_order(pt1)-1
++      npart(i) = pt2
++    end do
++
++    do i=1,numpart
++      call tVecFinilize(dcon(i))
++      call tVecFinilize(weight(i))
++    end do
++
++  end subroutine
++
++  subroutine reorder_inblocks(n2nlist,nodes,numpart,npart,id_inblock)
++    type(tVector), allocatable, intent(in)         :: n2nlist(:)
++    real(kind=kreal), pointer, intent(in  )        :: nodes(:) !< coordinate for inter ordering
++    integer(kind=kint), intent(in)                 :: numpart
++    integer(kind=kint), allocatable, intent(in)    :: npart(:)
++    integer(kind=kint), allocatable, intent(inout) :: id_inblock(:)
++
++
++    integer(kind=kint) :: i, j, k, nid1, nid2, pt1, pt2, nnode, lid
++    type(tVector) :: inblock_list
++
++    integer(kind=kint), allocatable :: id_local(:,:)
++
++    nnode = size(n2nlist)
++    allocate(id_local(2,nnode))
++    call tVecInit(inblock_list,2*nnode/numpart)
++
++    do i=0,numpart-1
++      !make node list
++      inblock_list%n = 0 !clear inblock_list
++      do j=1,nnode
++        if( npart(j) /= i ) cycle
++        call tVecAdd(inblock_list,j)
++        id_local(1,inblock_list%n) = inblock_list%n
++      end do
++
++      ! label inter-block node
++      do j=1,inblock_list%n
++        nid1 = inblock_list%vec(j)
++        pt1 = npart(nid1)
++        lid = 0
++        do k=1,n2nlist(nid1)%n
++          nid2 = n2nlist(nid1)%vec(k)
++          pt2 = npart(nid2)
++          lid = lid + pt2
++          if( pt2 == pt1-1 ) then
++            lid = lid - numpart
++          else if( pt2 == pt1+1 ) then
++            lid = lid + numpart
++          end if
++        end do
++        id_local(2,j) = 10000*lid/n2nlist(nid1)%n
++      end do
++
++      call sort_int_array2(id_local, 1, inblock_list%n)
++
++      ! reorder
++      do j=1,inblock_list%n
++        nid1 = inblock_list%vec(id_local(1,j))
++        id_inblock(nid1) = j
++      end do
++
++    end do
++  end subroutine
++
++  subroutine reorder_inblocks0(n2nlist,nodes,numpart,npart,id_inblock)
++    type(tVector), allocatable, intent(in)         :: n2nlist(:)
++    real(kind=kreal), pointer, intent(in  )        :: nodes(:) !< coordinate for inter ordering
++    integer(kind=kint), intent(in)                 :: numpart
++    integer(kind=kint), allocatable, intent(in)    :: npart(:)
++    integer(kind=kint), allocatable, intent(inout) :: id_inblock(:)
++
++
++    integer(kind=kint) :: i, j, k, nid1, nid2, pt1, pt2, nnode, lid, currnnode, currnnode0
++    type(tVector) :: inblock_list, lower_list_local, upper_list_local
++    type(tVector) :: inter_lower_local, inter_upper_local, stock
++    type(tVector) :: inter_lower_tmp, inter_upper_tmp
++
++    integer(kind=kint), allocatable :: internal_id_local(:), inorder(:)
++    logical, allocatable :: used(:)
++
++    nnode = size(n2nlist)
++
++    call tVecInit(inblock_list,2*nnode/numpart)
++    call tVecInit(lower_list_local,inblock_list%maxn)
++    call tVecInit(upper_list_local,inblock_list%maxn)
++    call tVecInit(inter_lower_local,inblock_list%maxn)
++    call tVecInit(inter_upper_local,inblock_list%maxn)
++    call tVecInit(inter_lower_tmp,inblock_list%maxn)
++    call tVecInit(inter_upper_tmp,inblock_list%maxn)
++    call tVecInit(stock,inblock_list%maxn)
++
++    id_inblock(:) = 0
++    allocate(internal_id_local(nnode),used(inblock_list%maxn),inorder(inblock_list%maxn))
++    internal_id_local(:) = 0
++
++    do i=0,numpart-1
++      !make node list
++      inblock_list%n = 0 !clear inblock_list
++      do j=1,nnode
++        if( npart(j) /= i ) cycle
++        call tVecAdd(inblock_list,j)
++        internal_id_local(j) = inblock_list%n
++      end do
++
++      ! label inter-block node
++      lower_list_local%n = 0
++      upper_list_local%n = 0
++      used(:) = .false.
++      do j=1,inblock_list%n
++        nid1 = inblock_list%vec(j)
++        pt1 = npart(nid1)
++        lid = 0
++        do k=1,n2nlist(nid1)%n
++          nid2 = n2nlist(nid1)%vec(k)
++          pt2 = npart(nid2)
++          if( abs(pt1-pt2) /= 1 ) cycle
++          lid = pt1 - pt2
++          exit
++        end do
++        if( lid > 0 ) then
++          call tVecAdd(lower_list_local,j)
++          used(j) = .true.
++        else if( lid < 0 ) then
++          call tVecAdd(upper_list_local,j)
++          used(j) = .true.
++        end if
++      end do
++      if( lower_list_local%n + upper_list_local%n == 0 ) then
++        call tVecAdd(lower_list_local,1)
++        used(1) = .true.
++      end if
++
++
++      currnnode0 = lower_list_local%n+upper_list_local%n
++      currnnode = currnnode0
++      inter_lower_local%n = 0 !clear
++      inter_upper_local%n = 0 !clear
++      inter_lower_tmp%n = lower_list_local%n
++      inter_lower_tmp%vec(1:inter_lower_tmp%n) = lower_list_local%vec(1:lower_list_local%n)
++      inter_upper_tmp%n = upper_list_local%n
++      do j=1,upper_list_local%n
++         inter_upper_tmp%vec(j) = upper_list_local%vec(upper_list_local%n-j+1)
++      end do
++      do while( currnnode < inblock_list%n )
++        !expand lower
++        stock%n = 0
++        if( inter_lower_tmp%n > 0 ) then
++          do j=1,inter_lower_tmp%n
++            !write(*,*) j,inter_lower_tmp%n,inter_lower_tmp%vec(j)
++            nid1 = inblock_list%vec(inter_lower_tmp%vec(j))
++            pt1 = npart(nid1)
++            do k=1,n2nlist(nid1)%n
++              nid2 = n2nlist(nid1)%vec(k)
++              lid = internal_id_local(nid2)
++              pt2 = npart(nid2)
++              if( pt2 /= i ) cycle
++              if( used(lid) ) cycle
++              call tVecAdd(stock,lid)
++              used(lid) = .true.
++            end do
++          end do
++          inter_lower_tmp%n = 0
++          do k=1,stock%n
++            call tVecAdd(inter_lower_tmp,stock%vec(k))
++            call tVecAdd(inter_lower_local,stock%vec(k))
++          end do
++        end if
++
++        !expand upper
++        stock%n = 0
++        if( inter_upper_tmp%n > 0 ) then
++          do j=inter_upper_tmp%n,1,-1
++            nid1 = inblock_list%vec(inter_upper_tmp%vec(j))
++            pt1 = npart(nid1)
++            do k=n2nlist(nid1)%n,1,-1
++              nid2 = n2nlist(nid1)%vec(k)
++              lid = internal_id_local(nid2)
++              pt2 = npart(nid2)
++              if( pt2 /= i ) cycle
++              if( used(lid) ) cycle
++              call tVecAdd(stock,lid)
++              used(lid) = .true.
++            end do
++          end do
++          inter_upper_tmp%n = 0
++          do k=stock%n,1,-1
++            call tVecAdd(inter_upper_tmp,stock%vec(k))
++            call tVecAdd(inter_upper_local,stock%vec(k))
++          end do
++        end if
++
++        currnnode = currnnode0 + inter_upper_tmp%n+inter_lower_tmp%n
++        if( currnnode0 == currnnode ) then
++          do j=1,inblock_list%n
++            if( used(j) ) cycle
++            call tVecAdd(inter_lower_tmp,j)
++            call tVecAdd(inter_lower_local,j)
++            used(j) = .true.
++            currnnode = currnnode + 1
++            exit
++          end do
++        end if
++        currnnode0 = currnnode
++      end do
++
++      inorder(:) = 0
++      do j=1,lower_list_local%n
++        inorder(j) = lower_list_local%vec(j)
++      end do
++      do j=1,inter_lower_local%n
++        inorder(lower_list_local%n+j) = inter_lower_local%vec(j)
++      end do
++
++      do j=1,upper_list_local%n
++        inorder(inblock_list%n-j+1) = upper_list_local%vec(j)
++      end do
++      do j=1,inter_upper_local%n
++        inorder(inblock_list%n-upper_list_local%n-j+1) = inter_upper_local%vec(j)
++      end do
++
++      !check inorder
++      !do k=1,inblock_list%n
++      !  if( .not. used(k) ) write(*,*) "notused:",k
++      !end do
++      !used(:) = .false.
++      !do k=1,inblock_list%n
++      !  if( inorder(k) > inblock_list%n ) write(*,*) "inorder(k) > inblock_list%n:",inorder(k),inblock_list%n
++      !  if( inorder(k) < 1 ) write(*,*) "inorder(k) < 1:",inorder(k)
++      !  if( used(inorder(k)) ) write(*,*) "duplicate!:",inorder(k)
++      !  used(inorder(k)) = .true.
++      !end do
++
++      ! reorder
++      do k=1,inblock_list%n
++        nid1 = inblock_list%vec(inorder(k))
++        id_inblock(nid1) = k
++        internal_id_local(nid1) = 0
++      end do
++
++    end do
++
++    deallocate(internal_id_local)
++    call tVecFinilize(inblock_list)
++    call tVecFinilize(lower_list_local)
++    call tVecFinilize(upper_list_local)
++    call tVecFinilize(inter_lower_local)
++    call tVecFinilize(inter_upper_local)
++
++  end subroutine
++
++
++  subroutine reorder_inblocks2(n2nlist,nodes,numpart,npart,id_inblock) !tmp
++    type(tVector), allocatable, intent(in)         :: n2nlist(:)
++    real(kind=kreal), pointer, intent(in  )        :: nodes(:) !< coordinate for inter ordering
++    integer(kind=kint), intent(in)                 :: numpart
++    integer(kind=kint), allocatable, intent(in)    :: npart(:)
++    integer(kind=kint), allocatable, intent(inout) :: id_inblock(:)
++
++
++    type(tVector) :: inblock_list, lower_list_local, upper_list_local
++
++    integer(kind=kint) :: i, j, k, nid1, nid2, pt1, pt2, nnode, lid
++    integer(kind=kint), allocatable :: flag(:,:)
++
++    !for inblock ordering
++    integer(kind=kint)              :: insize
++    integer(kind=kint), allocatable :: inorder(:), gid(:)
++    real(kind=kreal), allocatable   :: pos(:,:)
++
++    nnode = size(n2nlist)
++    allocate(pos(3,nnode),inorder(2*nnode/numpart),gid(2*nnode/numpart))
++
++    call tVecInit(inblock_list,2*nnode/numpart)
++    call tVecInit(lower_list_local,inblock_list%n)
++    call tVecInit(upper_list_local,inblock_list%n)
++
++    id_inblock(:) = 0
++
++    do i=0,numpart-1
++
++      !make node list
++      inblock_list%n = 0 !clear inblock_list
++      do j=1,nnode
++        if( npart(j) /= i ) cycle
++        call tVecAdd(inblock_list,j)
++      end do
++
++      ! label inter-block node
++
++      allocate(flag(2,inblock_list%n))
++      do j=1,inblock_list%n
++        flag(1,j) = j
++        flag(2,j) = 0
++      end do
++      do j=1,inblock_list%n
++        nid1 = inblock_list%vec(j)
++        pt1 = npart(nid1)
++        do k=1,n2nlist(nid1)%n
++          nid2 = n2nlist(nid1)%vec(k)
++          pt2 = npart(nid2)
++          if( pt1 == pt2 ) cycle
++          flag(2,j) = flag(2,j)+100*numpart/(pt2-pt1)
++        end do
++      end do
++      call sort_int_array2(flag, 1, inblock_list%n)
++
++      ! two-sided CM
++      call two_sided_CM(flag,n2nlist,inblock_list,i,npart)
++
++      ! reorder
++      do k=1,inblock_list%n
++        nid1 = inblock_list%vec(flag(1,k))
++        id_inblock(nid1) = k
++      end do
++
++      deallocate(flag)
++    end do
++
++    deallocate(pos,inorder,gid)
++    call tVecFinilize(inblock_list)
++  end subroutine
++
++  subroutine two_sided_CM(flag,n2nlist,inblock_list,pid,npart)
++    integer(kind=kint), allocatable, intent(in)    :: flag(:,:)
++    type(tVector), allocatable, intent(in)         :: n2nlist(:)
++    type(tVector), intent(in)                      :: inblock_list
++    integer(kind=kint), intent(in)                 :: pid
++    integer(kind=kint), allocatable, intent(in)    :: npart(:)
++
++
++  end subroutine
++
++  subroutine part_by_metis(hecMESH,n2nlist,nparts,part)
++    use iso_c_binding
++    type (hecmwST_local_mesh), intent(in) :: hecMESH
++    type(tVector), allocatable, intent(in) :: n2nlist(:)
++    integer(kind=kint), intent(in)        :: nparts
++    integer(kind=kint), allocatable, intent(inout)     :: part(:)
++
++    integer              :: i, j, nid
++    logical              :: is_external
++
++    !for metis
++    integer              :: nvtxs, ncon
++    integer, allocatable :: xadj(:), adjncy(:)
++    integer, allocatable :: vwgt(:)
++    !type(c_ptr)          :: vwgt = c_null_ptr
++    type(c_ptr)          :: vsize = c_null_ptr
++    integer, allocatable :: adjwgt(:)
++    type(c_ptr)          :: adjwgt_dum = c_null_ptr
++    real, allocatable    :: tpwgts(:)
++    real                 :: ubvec
++    integer, allocatable :: mopts(:)
++    integer              :: objval
++
++    nvtxs = hecMESH%nn_internal
++    ncon = 0
++    do i=1,nvtxs
++      do j=1,n2nlist(i)%n
++        nid = n2nlist(i)%vec(j)
++        if( nid > hecMESH%nn_internal ) cycle
++        ncon = ncon + 1
++      end do
++      !ncon = ncon + n2nlist(i)%n
++    end do
++    allocate(xadj(nvtxs+1),adjncy(ncon),adjwgt(ncon),tpwgts(nparts),mopts(41))
++    allocate(vwgt(nvtxs))
++    vwgt = 1
++    xadj(1) = 0
++    ncon = 0
++    do i=1,nvtxs
++      is_external = ( i > hecMESH%nn_internal )
++      do j=1,n2nlist(i)%n
++        nid = n2nlist(i)%vec(j)
++        if( nid > hecMESH%nn_internal ) cycle
++        ncon = ncon + 1
++        adjncy(ncon) = nid-1
++        if( nid > nvtxs ) write(*,*) "nid > nvtxs!: ",nid,nvtxs
++        if( nid < 1 ) write(*,*) "nid < 1!: ",nid
++        if( is_external .or. ( nid> hecMESH%nn_internal ) ) then
++          adjwgt(ncon) = 4
++        else
++          adjwgt(ncon) = 1
++        end if
++      end do
++      xadj(i+1) = ncon
++    end do
++    ubvec = 1.001
++    tpwgts(:) = 1.0 / real(nparts)
++    mopts(:)  = -1
++    ncon = 1
++
++    do i=1,nvtxs
++      part(i) = 0
++    end do
++    if( nparts > 1 ) then
++      call METIS_PartGraphRecursive(nvtxs,     &  ! (in), int
++                                    ncon,      &  ! (in), int
++                                    xadj,      &  ! (in), int(:)
++                                    adjncy,    &  ! (in), int(:)
++                                    vwgt,      &  ! (in), int(:)
++                                    vsize,     &  ! (in), int(:)
++                                    adjwgt,    &  ! (in), int(:)
++                                    nparts,    &  ! (in), int(:)
++                                    tpwgts,    &  ! (in), real(:)
++                                    ubvec,     &  ! (in), real(:)
++                                    mopts,     &  ! (in), int(:)
++                                    objval,    &  ! (out) int(:)
++                                    part)         ! (out) int(:)
++
++      !call METIS_PartGraphKway(nvtxs,ncon,xadj,adjncy,vwgt,vsize,adjwgt_dum,nparts,tpwgts,ubvec,mopts,objval,part)
++      !call METIS_PartGraphRecursive(nvtxs,ncon,xadj,adjncy,vwgt,vsize,adjwgt,tpwgts,nparts,ubvec,mopts,objval,part)
++    end if
++
++    do i=hecMESH%nn_internal+1,hecMESH%n_node
++      part(i) = -1
++    end do
++
++  end subroutine
++
++  subroutine part_by_metis_graph(hecMESH,n2nlist,numpart,npart)
++    type (hecmwST_local_mesh), intent(in) :: hecMESH
++    type(tVector), allocatable, intent(in) :: n2nlist(:)
++    integer(kind=kint), intent(in)        :: numpart
++    integer(kind=kint), allocatable, intent(inout)     :: npart(:)
++
++    !for metis
++    integer              :: nels, nnds, nitem, i, n
++    integer, allocatable :: eptr(:), nodes(:), epart(:)
++    integer, allocatable :: vwgt, vsize, mopts
++    real(8), allocatable :: tpwgts
++
++    nnds = hecMESH%n_node
++    nels = hecMESH%n_elem
++    nitem = hecMESH%elem_node_index(nels)
++
++    allocate(nodes(nitem),epart(nels))
++
++    if( numpart > 1 ) then
++      do i=1,nitem
++        nodes(i) = hecMESH%elem_node_item(i)-1
++      end do
++      call METIS_PartMeshNodal(nels,nnds,hecMESH%elem_node_index,nodes,vwgt,vsize,numpart,tpwgts,mopts,n,epart,npart)
++    else
++      do i=1,nnds
++        npart(i) = 0
++      end do
++      do i=1,nels
++        epart(i) = 0
++      end do
++    end if
++
++    do i=hecMESH%nn_internal+1,nnds
++      npart(i) = -1
++    end do
++
++    deallocate(nodes,epart)
++
++  end subroutine
++
++  !!!!!!! --- add connectivity_reorder start --- !!!!!!!
++  subroutine connectivity_reorder(hecMESH,num_reorder)
++    type (hecmwST_local_mesh), intent(in) :: hecMESH
++    integer(kind=kint), intent(inout)     :: num_reorder(:)
++
++    integer(kind=kint) :: i
++    type(tVector), allocatable :: n2nlist(:)
++    integer(kind=kint) :: n_groups
++    type(tVector), allocatable :: groups(:)
++
++    !create node to node list
++    call make_n2nlist(hecMESH,n2nlist)
++
++    !create group info
++    call make_grouping(hecMESH,n2nlist,n_groups,groups)
++
++    !create new node number
++    call make_connectivity_reorder(hecMESH,n2nlist,n_groups,groups,num_reorder)
++
++    !finalize n2nlist
++    do i=1,hecMESH%n_node
++      !call tVecPrint(n2nlist(i))
++      call tVecFinilize(n2nlist(i))
++    end do
++    deallocate(n2nlist)
++    !finalize grouplist
++    do i=1,n_groups
++      call tVecFinilize(groups(i))
++    end do
++    deallocate(groups)
++
++  end subroutine
++
++  subroutine make_connectivity_reorder(hecMESH,n2nlist,n_groups,groups,num_reorder)
++    type (hecmwST_local_mesh), intent(in)     :: hecMESH
++    type(tVector), allocatable, intent(in)    :: n2nlist(:)
++    integer(kind=kint), intent(in)            :: n_groups
++    type(tVector), allocatable, intent(in)    :: groups(:)
++    integer(kind=kint), intent(inout)         :: num_reorder(:)
++
++    integer(kind=kint) :: i, j, k, nid, nid2, counter
++    integer(kind=kint), allocatable :: newnumber(:)
++    integer(kind=kint), allocatable :: sortarray(:,:)
++
++    allocate(newnumber(hecMESH%n_node))
++    newnumber(1:hecMESH%nn_internal) = 0
++    do i=hecMESH%nn_internal+1,hecMESH%n_node
++      newnumber(i) = i
++    end do
++
++    allocate(sortarray(2,hecMESH%nn_internal))
++    counter = 0
++    do i=2,n_groups
++      sortarray(1:2,1:groups(i)%n) = 0
++      do j=1,groups(i)%n
++        nid = groups(i)%vec(j)
++        sortarray(1,j) = nid
++        do k=1,n2nlist(nid)%n
++          nid2 = n2nlist(nid)%vec(k)
++          sortarray(2,j) = max(newnumber(nid2),sortarray(2,j))
++        end do
++      end do
++
++      call sort_int_array2(sortarray, 1, groups(i)%n)
++      do j=1,groups(i)%n
++        nid = sortarray(1,groups(i)%n-j+1)
++        if( newnumber(nid) > 0 ) cycle
++        newnumber(nid) = hecMESH%nn_internal-counter
++        num_reorder(nid) = newnumber(nid)
++        counter = counter + 1
++      end do
++
++    end do
++
++    deallocate(newnumber,sortarray)
++  end subroutine
++
++  subroutine make_grouping(hecMESH,n2nlist,n_groups,groups)
++    type (hecmwST_local_mesh), intent(in)     :: hecMESH
++    type(tVector), allocatable, intent(in)    :: n2nlist(:)
++    integer(kind=kint), intent(out)           :: n_groups
++    type(tVector), allocatable, intent(inout) :: groups(:)
++
++    integer(kind=kint), allocatable :: grpids(:)
++    integer(kind=kint) :: i, j, k, nid0, nid1, nnode_rest
++    integer(kind=kint) :: counter
++
++    allocate(grpids(hecMESH%n_node))
++    allocate(groups(hecMESH%nn_internal+1))
++
++    !initial group is import nodes
++    grpids(1:hecMESH%nn_internal) = -1
++    grpids(hecMESH%nn_internal+1:hecMESH%n_node) = 1
++    n_groups = 1
++    call tVecInit(groups(n_groups),hecMESH%n_node-hecMESH%nn_internal)
++    do i=hecMESH%nn_internal+1,hecMESH%n_node
++      call tVecAdd(groups(n_groups),i)
++    end do
++    n_groups = n_groups + 1
++    nnode_rest = hecMESH%nn_internal
++
++    do k=2,hecMESH%nn_internal
++      call tVecInit(groups(n_groups),1000)
++      do i=1,groups(n_groups-1)%n
++        nid0 = groups(n_groups-1)%vec(i)
++
++        ! connectivity loop
++        do j=1,n2nlist(nid0)%n
++          nid1 = n2nlist(nid0)%vec(j)
++          if( grpids(nid1) > 0 ) cycle
++
++          grpids(nid1) = n_groups
++          call tVecAdd(groups(n_groups),nid1)
++        end do
++      end do
++
++      if( groups(n_groups)%n == 0 ) then
++        do i=1,hecMESH%nn_internal
++          if( grpids(i) > 0 ) cycle
++          call tVecAdd(groups(n_groups),i)
++        end do
++      end if
++
++      nnode_rest = nnode_rest - groups(n_groups)%n
++      if( nnode_rest == 0 ) exit
++      n_groups = n_groups + 1
++    end do
++
++  end subroutine
++
++  subroutine make_n2nlist(hecMESH,n2nlist)
++    use hecmw_etype
++    type (hecmwST_local_mesh), intent(in)     :: hecMESH
++    type(tVector), allocatable, intent(inout) :: n2nlist(:)
++
++    integer(kind=kint) :: itype, iS, iE, ic_type, nn, icel, iiS
++    integer(kind=kint) :: i, j, nodlocal(20)
++
++    allocate(n2nlist(hecMESH%n_node))
++    do i=1,hecMESH%n_node
++      call tVecInit(n2nlist(i),100)
++    end do
++
++    ! element loop
++    do itype= 1, hecMESH%n_elem_type
++      iS= hecMESH%elem_type_index(itype-1) + 1
++      iE= hecMESH%elem_type_index(itype  )
++      ic_type= hecMESH%elem_type_item(itype)
++      nn = hecmw_get_max_node(ic_type)
++
++      do icel= is, iE
++        iiS= hecMESH%elem_node_index(icel-1)
++        nodLOCAL(1:nn)= hecMESH%elem_node_item (iiS+1:iiS+nn)
++        do i=1,nn
++          do j=1,nn
++            call tVecAdd(n2nlist(nodLOCAL(i)),nodLOCAL(j))
++          end do
++        end do
++      end do
++    end do
++
++    do i=1,hecMESH%n_node
++      call tVecCompress(n2nlist(i))
++    end do
++  end subroutine
++
++  !!!!!!! --- add connectivity_reorder end --- !!!!!!!
++
++  subroutine block_reorder(num,numx,numy,numz,ratio,num_reorder,pos)
++    implicit none
++
++    integer(kind=kint), intent(IN)  :: num,numx,numy,numz
++    real(kind=kreal),   intent(IN)  :: ratio
++    integer(kind=kint), intent(OUT) :: num_reorder(:)
++    real(kind=kreal),   intent(IN)  :: pos(:,:) ! pos(3,num)
++
++    integer(kind=kint), dimension(:,:,:),  allocatable :: icount_in
++    integer(kind=kint), dimension(:,:,:),  allocatable :: icount_out
++    integer(kind=kint), dimension(:,:,:,:),allocatable :: num_new_in
++    integer(kind=kint), dimension(:,:,:,:),allocatable :: num_new_out
++
++    real(kind=kreal) :: xunit, yunit, zunit
++    real(kind=kreal) :: xl_ratio, yl_ratio, zl_ratio
++    real(kind=kreal) :: posx,     posy,     posz
++    real(kind=kreal) :: postx,    posty,    postz
++    real(kind=kreal) :: posx_max, posy_max, posz_max
++    real(kind=kreal) :: posx_min, posy_min, posz_min
++    real(kind=kreal) :: avec, sigma
++
++    integer(kind=kint)  :: numx_pos, numy_pos, numz_pos
++    integer(kind=kint)  :: max_num_box
++    integer(kind=kint)  :: iout,iin
++
++    integer :: i
++    integer :: ii, jj, kk
++    integer :: ic, icc, ic1, ic2
++    integer :: nblock, minc, maxc, ll, iold
++
++
++    !! param
++    !     parameter(xl_ratio=0.1,yl_ratio=0.1,zl_ratio=0.1)
++
++    xl_ratio = ratio
++    yl_ratio = ratio
++    zl_ratio = ratio
++
++    !! allocate section
++    allocate(icount_in(numx,numy,numz))
++    allocate(icount_out(numx,numy,numz))
++    !! search max,min position for x-y-z direction
++    posx_max=pos(1,1)
++    posy_max=pos(2,1)
++    posz_max=pos(3,1)
++    posx_min=pos(1,1)
++    posy_min=pos(2,1)
++    posz_min=pos(3,1)
++    do i = 1,num
++      posx=pos(1,i)
++      posy=pos(2,i)
++      posz=pos(3,i)
++      if(posx < posx_min ) then
++        posx_min = posx
++      endif
++      if(posy < posy_min ) then
++        posy_min = posy
++      endif
++      if(posz < posz_min ) then
++        posz_min = posz
++      endif
++      if(posx_max < posx ) then
++        posx_max = posx
++      endif
++      if(posy_max < posy ) then
++        posy_max = posy
++      endif
++      if(posz_max < posz ) then
++        posz_max = posz
++      endif
++    end do
++    !! calculation x-y-z unit
++    xunit=(posx_max - posx_min)/numx
++    yunit=(posy_max - posy_min)/numy
++    zunit=(posz_max - posz_min)/numz
++    !    9 format(a,4(1x,a10))
++    !      write(*, 9) "       ", "min", "max", "range", "pitch"
++    !   10 format(a,4(1x,f10.5))
++    !      write(*,10) "posx = ", posx_min,posx_max,posx_max-posx_min,xunit
++    !      write(*,10) "posy = ", posy_min,posy_max,posy_max-posy_min,yunit
++    !      write(*,10) "posz = ", posz_min,posz_max,posz_max-posz_min,zunit
++
++
++    !! count number in box points
++    icount_in = 0
++    do i = 1,num
++      posx=pos(1,i) - posx_min
++      posy=pos(2,i) - posy_min
++      posz=pos(3,i) - posz_min
++      if(posx-1.0e-10 <= 0.0) then
++        numx_pos=1
++      else
++        numx_pos=int((posx-1.0e-10)/xunit)+1
++      end if
++      if(numx_pos < 0 ) then
++        write(6,*) 'minus x_number o!!urs i=',i
++      endif
++      if(posy-1.0e-10 <= 0.0) then
++        numy_pos=1
++      else
++        numy_pos=int((posy-1.0e-10)/yunit)+1
++      end if
++      if(numy_pos < 0 ) then
++        write(6,*) 'minus y_number o!!urs i=',i
++      endif
++      if(posz-1.0e-10 <= 0.0) then
++        numz_pos=1
++      else
++        numz_pos=int((posz-1.0e-10)/zunit)+1
++      end if
++      if(numz_pos < 0 ) then
++        write(6,*) 'minus z_number o!!urs i=',i
++      endif
++      icount_in(numx_pos,numy_pos,numz_pos) = &
++          icount_in(numx_pos,numy_pos,numz_pos)+1
++    end do
++
++
++    !! check
++    !      do kk=1,numz
++    !        do jj=1,numy
++    !          do ii=1,numx
++    !   11 format(4(a,i0))
++    !        if( icount_in(ii,jj,kk) > 0 ) then
++    !        write(6,11) 'icount(',ii,',',jj,',',kk,')=',icount_in(ii,jj,kk)
++    !         endif
++    !          end do
++    !        end do
++    !      end do
++
++    ! search max number of box points
++    max_num_box = 0
++    do kk=1,numz
++      do jj=1,numy
++        do ii=1,numx
++          ic=icount_in(ii,jj,kk)
++          if(max_num_box < ic ) then
++            max_num_box = ic
++          end if
++        end do
++      end do
++    end do
++
++
++    !! allocate section
++    allocate(num_new_in(max_num_box,numx,numy,numz))
++    allocate(num_new_out(max_num_box,numx,numy,numz))
++    !! store new number
++    icount_in = 0
++    icount_out = 0
++    num_new_in = 0
++    num_new_out = 0
++    iin = 0
++    iout = 0
++    do i = 1,num
++      posx=pos(1,i) - posx_min
++      posy=pos(2,i) - posy_min
++      posz=pos(3,i) - posz_min
++      if(posx-1.0e-10 <= 0.0) then
++        numx_pos=1
++        postx=0.0
++      else
++        numx_pos=int((posx-1.0e-10)/xunit)+1
++        postx=posx-(numx_pos-1)*xunit
++      end if
++      if(posy-1.0e-10 <= 0.0) then
++        numy_pos=1
++        posty=0.0
++      else
++        numy_pos=int((posy-1.0e-10)/yunit)+1
++        posty=posy-(numy_pos-1)*yunit
++      end if
++      if(posz-1.0e-10 <= 0.0) then
++        numz_pos=1
++        postz=0.0
++      else
++        numz_pos=int((posz-1.0e-10)/zunit)+1
++        postz=posz-(numz_pos-1)*zunit
++      end if
++      if((xunit*xl_ratio <= postx)        .and. &
++         (postx <= xunit*(1.0-xl_ratio))  .and. &
++         (yunit*yl_ratio <= posty)        .and. &
++         (posty <= yunit*(1.0-yl_ratio))  .and. &
++         (zunit*zl_ratio <= postz)        .and. &
++         (postz <= zunit*(1.0-zl_ratio))) then
++        icount_in(numx_pos,numy_pos,numz_pos) = &
++            icount_in(numx_pos,numy_pos,numz_pos)+1
++        num_new_in(icount_in(numx_pos,numy_pos,numz_pos) &
++            ,numx_pos,numy_pos,numz_pos)=i
++        iin= iin+1
++      else
++        icount_out(numx_pos,numy_pos,numz_pos) = &
++            icount_out(numx_pos,numy_pos,numz_pos)+1
++        num_new_out(icount_out(numx_pos,numy_pos,numz_pos) &
++            ,numx_pos,numy_pos,numz_pos)=i
++        iout= iout+1
++      end if
++    end do
++
++
++    ! make renumber list
++    !      num_reorder = 0
++    icc=0
++    nblock=0
++    minc=num
++    maxc=0
++    do kk=1,numz
++      do jj=1,numy
++        do ii=1,numx
++          ic1=icount_in(ii,jj,kk)
++          do ll=1,ic1
++            iold=num_new_in(ll,ii,jj,kk)
++            icc = icc + 1
++            num_reorder(iold)=icc
++            !              write(6,*) icc,iold !DEBUG
++          end do
++          ic2=icount_out(ii,jj,kk)
++          do ll=1,ic2
++            iold=num_new_out(ll,ii,jj,kk)
++            icc = icc + 1
++            num_reorder(iold)=icc
++            !              write(6,*) icc,iold !DEBUG
++          end do
++          ic=ic1+ic2
++          if(ic>0) then
++            nblock = nblock + 1
++            minc = min(ic,minc)
++            maxc = max(ic,maxc)
++          endif
++        end do
++      end do
++    end do
++
++
++    !! count
++    !      avec = dble(num)/dble(nblock)
++    !      if(.true.)then
++    !        sigma = 0.d0
++    !        do kk=1,numz
++    !          do jj=1,numy
++    !            do ii=1,numx
++    !              ic1=icount_in(ii,jj,kk)
++    !              do ll=1,ic1
++    !                iold=num_new_in(ll,ii,jj,kk)
++    !              end do
++    !              ic2=icount_out(ii,jj,kk)
++    !              do ll=1,ic2
++    !                iold=num_new_out(ll,ii,jj,kk)
++    !              end do
++    !              ic=ic1+ic2
++    !              if(ic>0) then
++    !                sigma = sigma + (ic-avec)**2
++    !              endif
++    !            end do
++    !          end do
++    !        end do
++    !        sigma = sqrt(sigma/nblock)
++    !        write(*,*) 'number of block  = ', nblock
++    !        write(*,*) '  ave.grid/block = ', avec
++    !        write(*,*) '  max            = ', maxc
++    !        write(*,*) '  min            = ', minc
++    !        write(*,*) '  sigma          = ', sigma
++    !      endif
++
++    ! check
++    !      write(6,*) 'i!!=',icc
++    !      call qsort(num_reorder,num,4,compare4)
++    !      do i = 1,num
++    !        num_chk=num_reorder(i)
++    !        if(i/=num_chk) then
++    !          write(6,*) i,num_chk,'+++ error co!!ured +++'
++    !        end if
++    !      end do
++
++    !      write(6,*) '+++ execution OK +++'
++    !      write(6,*) '## in - out ##',iin,iout
++
++    deallocate(icount_in)
++    deallocate(icount_out)
++    deallocate(num_new_in)
++    deallocate(num_new_out)
++    return
++  end subroutine block_reorder
++
++!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
++
++  ! For dubug.
++  ! Make reorder table as inverse order.
++  subroutine make_reorder_table_inverse_order(hecMESH)
++
++    type (hecmwST_local_mesh), intent(inout) :: hecMESH
++
++    integer :: i
++
++    do i=1, hecMESH%nn_internal
++      hecMESH%tuning_block_reorder_new2old(i)=hecMESH%nn_internal - i + 1
++      hecMESH%tuning_block_reorder_old2new(hecMESH%tuning_block_reorder_new2old(i))=i
++    end do
++    do i=hecMESH%nn_internal + 1, hecMESH%n_node
++      hecMESH%tuning_block_reorder_new2old(i)=i
++      hecMESH%tuning_block_reorder_old2new(hecMESH%tuning_block_reorder_new2old(i))=i
++    end do
++  end subroutine make_reorder_table_inverse_order
++
++end module hecmw_tuning_node_block_reorder
+diff --git a/hecmw1/src/common/hecmw_util_f.F90 b/hecmw1/src/common/hecmw_util_f.F90
+index f822d1bf..68507901 100644
+--- a/hecmw1/src/common/hecmw_util_f.F90
++++ b/hecmw1/src/common/hecmw_util_f.F90
+@@ -365,6 +365,13 @@ module hecmw_util
+     integer(kind=kint),pointer :: elem_new2old(:)
+     integer(kind=kint),pointer :: n_node_refine_hist(:)
+ 
++    !C
++    !C-- BLOCK REORDERED NODE ID (PERFORMANCE TUNING)
++    !C
++    logical :: tuning_block_reorder_on
++    integer(kind=kint), pointer :: tuning_block_reorder_old2new(:)
++    integer(kind=kint), pointer :: tuning_block_reorder_new2old(:)
++
+     !C
+     !C-- ETC.
+     !C
+@@ -798,6 +805,8 @@ contains
+     nullify( P%elem_old2new )
+     nullify( P%elem_new2old )
+     nullify( P%n_node_refine_hist )
++    nullify( P%tuning_block_reorder_old2new )
++    nullify( P%tuning_block_reorder_new2old )
+ 
+     call hecmw_nullify_section( P%section )
+     call hecmw_nullify_material( P%material )
+diff --git a/hecmw1/src/common/res_bin_io.inc b/hecmw1/src/common/res_bin_io.inc
+index 84f6d0a2..a6de850b 100644
+--- a/hecmw1/src/common/res_bin_io.inc
++++ b/hecmw1/src/common/res_bin_io.inc
+@@ -155,13 +155,6 @@ bin_output_result_global(FILE *fp)
+ 	}
+ 	HECMW_free(data);
+ 
+-	/* data header */
+-	rc = hecmw_write_bin(fp,"S","*data");
+-	if(rc < 0) {
+-		HECMW_set_error(HECMW_UTIL_E0205, "head");
+-		return -1;
+-	}
+-
+ 	return 0;
+ }
+ 
+@@ -314,6 +307,7 @@ bin_output_result_elem(FILE *fp)
+ static int
+ bin_output_result_data(FILE *fp)
+ {
++  int rc;
+ 	HECMW_assert(fp);
+ 
+ 	if(bin_output_result_header(fp)) {
+@@ -323,7 +317,13 @@ bin_output_result_data(FILE *fp)
+ 		if(bin_output_result_global(fp)) {
+ 			return -1;
+ 		}
++    /* data header */
++    rc = hecmw_write_bin(fp,"S","*data");
++    if(rc < 0) {
++      HECMW_set_error(HECMW_UTIL_E0205, "head");
++      return -1;
+     }
++  }
+ 	if(bin_output_result_dataheader(fp)) {
+ 		return -1;
+ 	}
+diff --git a/hecmw1/src/common/res_txt_io.inc b/hecmw1/src/common/res_txt_io.inc
+index c5382035..d47c467f 100644
+--- a/hecmw1/src/common/res_txt_io.inc
++++ b/hecmw1/src/common/res_txt_io.inc
+@@ -114,13 +114,6 @@ output_result_global(FILE *fp)
+ 	}
+ 	HECMW_free(data);
+ 
+-	/* data header */
+-	rc = fprintf(fp, "*data\n");
+-	if(rc < 0) {
+-		HECMW_set_error(HECMW_UTIL_E0205, "*data");
+-		return -1;
+-	}
+-
+ 	return 0;
+ }
+ 
+@@ -305,6 +298,7 @@ output_result_elem(FILE *fp)
+ static int
+ output_result_data(FILE *fp)
+ {
++	int rc;
+ 	HECMW_assert(fp);
+ 
+ 	if(output_result_header(fp)) {
+@@ -314,7 +308,13 @@ output_result_data(FILE *fp)
+ 		if(output_result_global(fp)) {
+ 			return -1;
+ 		}
++    /* data header */
++    rc = fprintf(fp, "*data\n");
++    if(rc < 0) {
++      HECMW_set_error(HECMW_UTIL_E0205, "*data");
++      return -1;
+     }
++  }
+ 	if(output_result_dataheader(fp)) {
+ 		return -1;
+ 	}
+diff --git a/hecmw1/src/hecmw/hecmw.f90 b/hecmw1/src/hecmw/hecmw.f90
+index 4ef4996d..334a2ede 100644
+--- a/hecmw1/src/hecmw/hecmw.f90
++++ b/hecmw1/src/hecmw/hecmw.f90
+@@ -45,4 +45,5 @@ module hecmw
+   use m_hecmw_comm_f
+   use m_hecmw_solve_error
+   use m_hecmw_solve_init
++  use hecmw_tuning_node_block_reorder
+ end module hecmw
+diff --git a/hecmw1/src/solver/iterative/hecmw_solver_CG.f90 b/hecmw1/src/solver/iterative/hecmw_solver_CG.f90
+index c622bd5c..f6cbe79c 100644
+--- a/hecmw1/src/solver/iterative/hecmw_solver_CG.f90
++++ b/hecmw1/src/solver/iterative/hecmw_solver_CG.f90
+@@ -42,7 +42,7 @@ contains
+     integer(kind=kint ) :: ITERlog, TIMElog
+     real(kind=kreal), pointer :: B(:), X(:)
+ 
+-    real(kind=kreal), dimension(:,:), allocatable :: WW
++    real(kind=kreal), allocatable :: WR(:), WZ(:), WP(:), WWK(:)
+ 
+     integer(kind=kint), parameter ::  R= 1
+     integer(kind=kint), parameter ::  Z= 2
+@@ -94,8 +94,11 @@ contains
+     ALPHA1 = 0.0d0
+     BETA = 0.0d0
+ 
+-    allocate (WW(NDOF*NP, 4))
+-    WW = 0.d0
++    allocate( WR(NDOF*NP), WZ(NDOF*NP), WP(NDOF*NP), WWK(NDOF*NP) )
++    WR(1:NDOF*NP) = 0.d0
++    WZ(1:NDOF*NP) = 0.d0
++    WP(1:NDOF*NP) = 0.d0
++    WWK(1:NDOF*NP) = 0.d0
+ 
+     !C
+     !C-- SCALING
+@@ -120,7 +123,7 @@ contains
+     !C | {r0}= {b} - [A]{x0} |
+     !C +---------------------+
+     !C===
+-    call hecmw_matresid(hecMESH, hecMAT, X, B, WW(:,R), Tcomm)
++    call hecmw_matresid(hecMESH, hecMAT, X, B, WR, Tcomm)
+ 
+     !C-- compute ||{b}||
+     call hecmw_InnerProduct_R(hecMESH, NDOF, B, B, BNRM2, Tcomm)
+@@ -160,7 +163,7 @@ contains
+       !C | {z}= [Minv]{r} |
+       !C +----------------+
+       !C===
+-      call hecmw_precond_apply(hecMESH, hecMAT, WW(:,R), WW(:,Z), WW(:,WK), Tcomm)
++      call hecmw_precond_apply(hecMESH, hecMAT, WR, WZ, WWK, Tcomm)
+ 
+ 
+       !C===
+@@ -168,7 +171,7 @@ contains
+       !C | {RHO}= {r}{z} |
+       !C +---------------+
+       !C===
+-      call hecmw_InnerProduct_R(hecMESH, NDOF, WW(:,R), WW(:,Z), RHO, Tcomm)
++      call hecmw_InnerProduct_R(hecMESH, NDOF, WR, WZ, RHO, Tcomm)
+       ! if RHO is NaN or Inf then no converge
+       if (RHO == 0.d0) then
+         ! converged due to RHO==0
+@@ -193,12 +196,12 @@ contains
+       !C===
+       if ( ITER.eq.1 ) then
+         do i = 1, NNDOF
+-          WW(i,P) = WW(i,Z)
++          WP(i) = WZ(i)
+         enddo
+       else
+         BETA = RHO / RHO1
+         do i = 1, NNDOF
+-          WW(i,P) = WW(i,Z) + BETA*WW(i,P)
++          WP(i) = WZ(i) + BETA*WP(i)
+         enddo
+       endif
+ 
+@@ -207,14 +210,14 @@ contains
+       !C | {q}= [A] {p} |
+       !C +--------------+
+       !C===
+-      call hecmw_matvec(hecMESH, hecMAT, WW(:,P), WW(:,Q), Tcomm)
++      call hecmw_matvec(hecMESH, hecMAT, WP, WZ, Tcomm)
+ 
+       !C===
+       !C +---------------------+
+       !C | ALPHA= RHO / {p}{q} |
+       !C +---------------------+
+       !C===
+-      call hecmw_InnerProduct_R(hecMESH, NDOF, WW(:,P), WW(:,Q), C1, Tcomm)
++      call hecmw_InnerProduct_R(hecMESH, NDOF, WP, WZ, C1, Tcomm)
+       ! if C1 is NaN or Inf, no converge
+       if (C1 <= 0) then
+         ! diverged due to indefinite or negative definite matrix
+@@ -234,19 +237,19 @@ contains
+       !C +----------------------+
+       !C===
+       do i = 1, NNDOF
+-        X(i)  = X(i)    + ALPHA * WW(i,P)
++        X(i)  = X(i)    + ALPHA * WP(i)
+         ! WW(i,R)= WW(i,R) - ALPHA * WW(i,Q)
+       enddo
+ 
+       if ( mod(ITER,N_ITER_RECOMPUTE_R)==0 ) then
+-        call hecmw_matresid(hecMESH, hecMAT, X, B, WW(:,R), Tcomm)
++        call hecmw_matresid(hecMESH, hecMAT, X, B, WR, Tcomm)
+       else
+         do i = 1, NNDOF
+-          WW(i,R)= WW(i,R) - ALPHA * WW(i,Q)
++          WR(i)= WR(i) - ALPHA * WZ(i)
+         enddo
+       endif
+ 
+-      call hecmw_InnerProduct_R(hecMESH, NDOF, WW(:,R), WW(:,R), DNRM2, Tcomm)
++      call hecmw_InnerProduct_R(hecMESH, NDOF, WR, WR, DNRM2, Tcomm)
+ 
+       RESID= dsqrt(DNRM2/BNRM2)
+ 
+@@ -268,8 +271,8 @@ contains
+       if ( RESID.le.TOL   ) then
+         if ( mod(ITER,N_ITER_RECOMPUTE_R)==0 ) exit
+         !C----- recompute R to make sure it is really converged
+-        call hecmw_matresid(hecMESH, hecMAT, X, B, WW(:,R), Tcomm)
+-        call hecmw_InnerProduct_R(hecMESH, NDOF, WW(:,R), WW(:,R), DNRM2, Tcomm)
++        call hecmw_matresid(hecMESH, hecMAT, X, B, WR, Tcomm)
++        call hecmw_InnerProduct_R(hecMESH, NDOF, WR, WR, DNRM2, Tcomm)
+         RESID= dsqrt(DNRM2/BNRM2)
+         if ( RESID.le.TOL ) exit
+       endif
+@@ -290,7 +293,7 @@ contains
+     END_TIME = HECMW_WTIME()
+     Tcomm = Tcomm + END_TIME - START_TIME
+ 
+-    deallocate (WW)
++    deallocate (WR,WZ,WP,WWK)
+     !call hecmw_precond_clear(hecMAT)
+ 
+     if (hecmw_mat_get_usejad(hecMAT).ne.0) then
+diff --git a/hecmw1/src/solver/iterative/hecmw_solver_Iterative.f90 b/hecmw1/src/solver/iterative/hecmw_solver_Iterative.f90
+index 26c6cf45..3a01dc4d 100644
+--- a/hecmw1/src/solver/iterative/hecmw_solver_Iterative.f90
++++ b/hecmw1/src/solver/iterative/hecmw_solver_Iterative.f90
+@@ -87,6 +87,9 @@ contains
+     call hecmw_mat_dump(hecMAT, hecMESH)
+     call hecmw_matvec_set_async(hecMAT)
+ 
++    !C-- setup matrix-vector product
++    call hecmw_matvec_setup (hecMESH, hecMAT)
++
+     !C ITERATIVE solver
+     error=0
+     !! Auto Sigma_diag loop
+diff --git a/hecmw1/src/solver/las/hecmw_solver_las.f90 b/hecmw1/src/solver/las/hecmw_solver_las.f90
+index f315199d..caf04b34 100644
+--- a/hecmw1/src/solver/las/hecmw_solver_las.f90
++++ b/hecmw1/src/solver/las/hecmw_solver_las.f90
+@@ -17,6 +17,7 @@ module hecmw_solver_las
+   private
+ 
+   public :: hecmw_matvec
++  public :: hecmw_matvec_setup
+   public :: hecmw_matvec_set_async
+   public :: hecmw_matvec_unset_async
+   public :: hecmw_matresid
+@@ -36,6 +37,25 @@ module hecmw_solver_las
+ 
+ contains
+ 
++  !C
++  !C***
++  !C*** hecmw_matvec_setup
++  !C***
++  !C
++  subroutine hecmw_matvec_setup (hecMESH, hecMAT)
++    use hecmw_util
++
++    implicit none
++    type (hecmwST_local_mesh), intent(in) :: hecMESH
++    type (hecmwST_matrix), intent(in), target :: hecMAT
++    select case(hecMAT%NDOF)
++      case (3)
++        call hecmw_matvec_setup_33(hecMESH, hecMAT)
++      case default
++    end select
++
++  end subroutine hecmw_matvec_setup
++
+   !C
+   !C***
+   !C*** hecmw_matvec
+diff --git a/hecmw1/src/solver/las/hecmw_solver_las_33.f90 b/hecmw1/src/solver/las/hecmw_solver_las_33.f90
+index 8e9e7cad..ccb4e3f3 100644
+--- a/hecmw1/src/solver/las/hecmw_solver_las_33.f90
++++ b/hecmw1/src/solver/las/hecmw_solver_las_33.f90
+@@ -9,6 +9,7 @@ module hecmw_solver_las_33
+ 
+   private
+ 
++  public :: hecmw_matvec_setup_33
+   public :: hecmw_matvec_33
+   public :: hecmw_matvec_33_set_async
+   public :: hecmw_matvec_33_unset_async
+@@ -19,13 +20,88 @@ module hecmw_solver_las_33
+   public :: hecmw_TtmatTvec_33
+   public :: hecmw_mat_diag_sr_33
+ 
++  integer(kind=kint), save :: N, NP, NZIN
++  integer(kind=kint), allocatable, save :: index_i(:), item_i(:)
++  real(kind=kreal), allocatable, save   :: A_i(:)
+   ! ! for communication hiding in matvec
++  !integer(kind=kint), save :: NZOUT
+   ! integer(kind=kint), save, allocatable :: index_o(:), item_o(:)
+   ! real(kind=kreal), save, allocatable :: A_o(:)
+   logical, save :: async_matvec_flg = .false.
+ 
++  integer, parameter :: numOfBlockPerThread = 100
++
+ contains
+ 
++  subroutine hecmw_matvec_setup_33 (hecMESH, hecMAT)
++    use hecmw_jad_type
++    implicit none
++    type (hecmwST_local_mesh), intent(in) :: hecMESH
++    type (hecmwST_matrix), intent(in), target :: hecMAT
++
++    integer(kind=kint) :: i, j, k
++
++    if (hecmw_JAD_IS_INITIALIZED().ne.0) return
++
++    N = hecMAT%N
++    NP = hecMAT%NP
++    if( allocated(index_i) ) deallocate(index_i)
++    if( allocated(item_i) ) deallocate(item_i)
++    if( allocated(A_i) ) deallocate(A_i)
++
++    !count nonzero elements
++    NZIN = hecMAT%indexL(N) + N + hecMAT%indexU(N)
++    !NZOUT = 0
++    !! upper
++    !do i=1,N
++    !  do k=hecMAT%indexU(i-1)+1,hecMAT%indexU(i)
++    !    j = hecMAT%itemU(k)
++    !    if( j > N ) NZOUT = NZOUT + 1
++    !  end do
++    !end do
++    !NZIN = NZIN - NZOUT
++
++    allocate(index_i(0:N),item_i(NZIN),A_i(9*NZIN))
++    !allocate(index_o(0:N),item_o(NZOUT),A_o(9*NZOUT))
++
++    ! set value
++    NZIN = 0
++    !NZOUT = 0
++    index_i(0) = 0
++    !index_o(0) = 0
++    do i=1,N
++      ! lower
++      do k=hecMAT%indexL(i-1)+1,hecMAT%indexL(i)
++        NZIN = NZIN + 1
++        j = hecMAT%itemL(k)
++        item_i(NZIN) = j
++        A_i(9*NZIN-8:9*NZIN) = hecMAT%AL(9*k-8:9*k)
++      end do
++      ! diag
++      NZIN = NZIN + 1
++      item_i(NZIN) = i
++      A_i(9*NZIN-8:9*NZIN) = hecMAT%D(9*i-8:9*i)
++      ! upper
++      do k=hecMAT%indexU(i-1)+1,hecMAT%indexU(i)
++        j = hecMAT%itemU(k)
++        !if( j > N ) then
++        !  NZOUT = NZOUT + 1
++        !  if( OUT_TYPE == 1 ) index_out(NZOUT) = i
++        !  item_out(NZOUT) = j
++        !  aval_out(9*NZOUT-8:9*NZOUT) = hecMAT%AU(9*k-8:9*k)
++        !else
++          NZIN = NZIN + 1
++          item_i(NZIN) = j
++          A_i(9*NZIN-8:9*NZIN) = hecMAT%AU(9*k-8:9*k)
++        !end if
++      end do
++
++      index_i(i) = NZIN
++      !index_o(i) = NZOUT
++    end do
++
++  end subroutine hecmw_matvec_setup_33
++
+   !C
+   !C***
+   !C*** hecmw_matvec_33
+@@ -112,6 +188,94 @@ contains
+     ! async_matvec_flg = .false.
+   end subroutine hecmw_matvec_33_unset_async
+ 
++  subroutine hecmw_matvec_33_core(N,NP,NNZ,X,Y,aval,item,idx,numOfBlock,numOfThread,startPos,endPos,async_matvec_flg)
++    !$ use omp_lib
++    integer(kind=kint), intent(in)  :: N
++    integer(kind=kint), intent(in)  :: NP
++    integer(kind=kint), intent(in)  :: NNZ
++    real(kind=kreal), intent(in)    :: X(3*NP)
++    real(kind=kreal), intent(inout) :: Y(3*N)
++    real(kind=kreal), intent(in)    :: aval(9*NNZ)
++    integer(kind=kint), intent(in)  :: item(NNZ)
++    integer(kind=kint), intent(in)  :: idx(0:N)
++    integer(kind=kint), intent(in)  :: numOfBlock
++    integer(kind=kint), intent(in)  :: numOfThread
++    integer(kind=kint), intent(in)  :: startPos(0:numOfBlock)
++    integer(kind=kint), intent(in)  :: endPos(0:numOfBlock)
++    logical, intent(in)             :: async_matvec_flg
++
++    integer(kind=kint) :: i, j, jS, jE, in
++    real(kind=kreal) :: YV1, YV2, YV3, X1, X2, X3
++    integer(kind=kint) :: threadNum, blockNum, blockIndex
++
++    !call fapp_start("loopInMatvec33", 1, 0)
++    !call start_collection("loopInMatvec33")
++
++    !OCL CACHE_SUBSECTOR_ASSIGN(X)
++
++    if( numOfThread > 1 ) then
++
++    !$OMP PARALLEL DEFAULT(NONE) &
++      !$OMP&PRIVATE(i,X1,X2,X3,YV1,YV2,YV3,j,in,threadNum,blockNum,blockIndex) &
++      !$OMP&SHARED(aval,item,idx,X,Y,startPos,endPos,numOfThread,async_matvec_flg)
++    threadNum = 0
++    !$ threadNum = omp_get_thread_num()
++    do blockNum = 0 , numOfBlockPerThread - 1
++      blockIndex = blockNum * numOfThread  + threadNum
++      do i = startPos(blockIndex), endPos(blockIndex)
++        YV1= 0.d0
++        YV2= 0.d0
++        YV3= 0.d0
++
++        do j= idx(i-1)+1, idx(i)
++          in  = item(j)
++          X1= X(3*in-2)
++          X2= X(3*in-1)
++          X3= X(3*in  )
++          YV1= YV1 + aval(9*j-8)*X1 + aval(9*j-7)*X2 + aval(9*j-6)*X3
++          YV2= YV2 + aval(9*j-5)*X1 + aval(9*j-4)*X2 + aval(9*j-3)*X3
++          YV3= YV3 + aval(9*j-2)*X1 + aval(9*j-1)*X2 + aval(9*j  )*X3
++        enddo
++
++        Y(3*i-2)= YV1
++        Y(3*i-1)= YV2
++        Y(3*i  )= YV3
++      enddo
++    enddo
++    !$OMP END PARALLEL
++
++    else
++
++      do i = 1, N
++        YV1= 0.d0
++        YV2= 0.d0
++        YV3= 0.d0
++
++        do j= idx(i-1)+1, idx(i)
++          in  = item(j)
++          X1= X(3*in-2)
++          X2= X(3*in-1)
++          X3= X(3*in  )
++          YV1= YV1 + aval(9*j-8)*X1 + aval(9*j-7)*X2 + aval(9*j-6)*X3
++          YV2= YV2 + aval(9*j-5)*X1 + aval(9*j-4)*X2 + aval(9*j-3)*X3
++          YV3= YV3 + aval(9*j-2)*X1 + aval(9*j-1)*X2 + aval(9*j  )*X3
++        enddo
++
++        Y(3*i-2)= YV1
++        Y(3*i-1)= YV2
++        Y(3*i  )= YV3
++      enddo
++
++    end if
++
++
++    !OCL END_CACHE_SUBSECTOR
++
++    !call stop_collection("loopInMatvec33")
++    !call fapp_stop("loopInMatvec33", 1, 0)
++
++  end subroutine
++
+   !C
+   !C***
+   !C*** hecmw_matvec_33_inner ( private subroutine )
+@@ -146,7 +310,6 @@ contains
+     integer(kind=kint) :: ireq
+ 
+     ! added for turning >>>
+-    integer, parameter :: numOfBlockPerThread = 100
+     logical, save :: isFirst = .true.
+     integer, save :: numOfThread = 1
+     integer, save, allocatable :: startPos(:), endPos(:)
+@@ -234,62 +397,12 @@ contains
+ 
+       START_TIME = hecmw_Wtime()
+ 
+-      !call fapp_start("loopInMatvec33", 1, 0)
+-      !call start_collection("loopInMatvec33")
+-
+       !OCL CACHE_SECTOR_SIZE(sectorCacheSize0,sectorCacheSize1)
+-      !OCL CACHE_SUBSECTOR_ASSIGN(X)
+-
+-      !$OMP PARALLEL DEFAULT(NONE) &
+-        !$OMP&PRIVATE(i,X1,X2,X3,YV1,YV2,YV3,jS,jE,j,in,threadNum,blockNum,blockIndex) &
+-        !$OMP&SHARED(D,AL,AU,indexL,itemL,indexU,itemU,X,Y,startPos,endPos,numOfThread,N,async_matvec_flg)
+-      threadNum = 0
+-      !$ threadNum = omp_get_thread_num()
+-      do blockNum = 0 , numOfBlockPerThread - 1
+-        blockIndex = blockNum * numOfThread  + threadNum
+-        do i = startPos(blockIndex), endPos(blockIndex)
+-          X1= X(3*i-2)
+-          X2= X(3*i-1)
+-          X3= X(3*i  )
+-          YV1= D(9*i-8)*X1 + D(9*i-7)*X2 + D(9*i-6)*X3
+-          YV2= D(9*i-5)*X1 + D(9*i-4)*X2 + D(9*i-3)*X3
+-          YV3= D(9*i-2)*X1 + D(9*i-1)*X2 + D(9*i  )*X3
+-
+-          jS= indexL(i-1) + 1
+-          jE= indexL(i  )
+-          do j= jS, jE
+-            in  = itemL(j)
+-            X1= X(3*in-2)
+-            X2= X(3*in-1)
+-            X3= X(3*in  )
+-            YV1= YV1 + AL(9*j-8)*X1 + AL(9*j-7)*X2 + AL(9*j-6)*X3
+-            YV2= YV2 + AL(9*j-5)*X1 + AL(9*j-4)*X2 + AL(9*j-3)*X3
+-            YV3= YV3 + AL(9*j-2)*X1 + AL(9*j-1)*X2 + AL(9*j  )*X3
+-          enddo
+-          jS= indexU(i-1) + 1
+-          jE= indexU(i  )
+-          do j= jS, jE
+-            in  = itemU(j)
+-            ! if (async_matvec_flg .and. in > N) cycle
+-            X1= X(3*in-2)
+-            X2= X(3*in-1)
+-            X3= X(3*in  )
+-            YV1= YV1 + AU(9*j-8)*X1 + AU(9*j-7)*X2 + AU(9*j-6)*X3
+-            YV2= YV2 + AU(9*j-5)*X1 + AU(9*j-4)*X2 + AU(9*j-3)*X3
+-            YV3= YV3 + AU(9*j-2)*X1 + AU(9*j-1)*X2 + AU(9*j  )*X3
+-          enddo
+-          Y(3*i-2)= YV1
+-          Y(3*i-1)= YV2
+-          Y(3*i  )= YV3
+-        enddo
+-      enddo
+-      !$OMP END PARALLEL
+ 
+-      !OCL END_CACHE_SUBSECTOR
+-      !OCL END_CACHE_SECTOR_SIZE
++      call hecmw_matvec_33_core(N,NP,NZIN,X,Y,A_i,item_i,index_i, &
++        numOfBlock,numOfThread,startPos,endPos,async_matvec_flg)
+ 
+-      !call stop_collection("loopInMatvec33")
+-      !call fapp_stop("loopInMatvec33", 1, 0)
++      !OCL END_CACHE_SECTOR_SIZE
+ 
+       END_TIME = hecmw_Wtime()
+       time_Ax = time_Ax + END_TIME - START_TIME
+diff --git a/hecmw1/src/solver/matrix/hecmw_matrix_misc.f90 b/hecmw1/src/solver/matrix/hecmw_matrix_misc.f90
+index 59a6c26a..065cca4e 100644
+--- a/hecmw1/src/solver/matrix/hecmw_matrix_misc.f90
++++ b/hecmw1/src/solver/matrix/hecmw_matrix_misc.f90
+@@ -15,6 +15,7 @@ module hecmw_matrix_misc
+   public :: hecmw_mat_init
+   public :: hecmw_mat_finalize
+   public :: hecmw_mat_copy_profile
++  public :: hecmw_mat_copy_val
+ 
+   public :: hecmw_mat_set_iter
+   public :: hecmw_mat_get_iter
+@@ -232,6 +233,32 @@ contains
+     hecMAT%X  = 0.d0
+   end subroutine hecmw_mat_copy_profile
+ 
++  subroutine hecmw_mat_copy_val( hecMATorg, hecMAT )
++    type(hecmwST_matrix), intent(in) :: hecMATorg
++    type(hecmwST_matrix), intent(inout) :: hecMAT
++    integer(kind=kint) :: ierr
++    integer(kind=kint) :: i
++    ierr = 0
++    if (hecMAT%N    /= hecMATorg%N) ierr = 1
++    if (hecMAT%NP   /= hecMATorg%NP) ierr = 1
++    if (hecMAT%NDOF /= hecMATorg%NDOF) ierr = 1
++    if (hecMAT%NPL  /= hecMATorg%NPL) ierr = 1
++    if (hecMAT%NPU  /= hecMATorg%NPU) ierr = 1
++    if (ierr /= 0) then
++      write(0,*) 'ERROR: hecmw_mat_copy_val: different profile'
++      stop
++    endif
++    do i = 1, size(hecMAT%D)
++      hecMAT%D(i)  = hecMATorg%D(i)
++    enddo
++    do i = 1, size(hecMAT%AL)
++      hecMAT%AL(i) = hecMATorg%AL(i)
++    enddo
++    do i = 1, size(hecMAT%AU)
++      hecMAT%AU(i) = hecMATorg%AU(i)
++    enddo
++  end subroutine hecmw_mat_copy_val
++
+   subroutine hecmw_mat_set_iter( hecMAT, iter )
+     type(hecmwST_matrix) :: hecMAT
+     integer(kind=kint) :: iter
+diff --git a/hecmw1/src/solver/precond/33/hecmw_precond_33.f90 b/hecmw1/src/solver/precond/33/hecmw_precond_33.f90
+index 9e38be1f..4b91a6ba 100644
+--- a/hecmw1/src/solver/precond/33/hecmw_precond_33.f90
++++ b/hecmw1/src/solver/precond/33/hecmw_precond_33.f90
+@@ -75,8 +75,9 @@ contains
+     implicit none
+     type (hecmwST_local_mesh), intent(in) :: hecMESH
+     type (hecmwST_matrix), intent(in)     :: hecMAT
+-    real(kind=kreal), intent(in) :: R(:)
+-    real(kind=kreal), intent(out) :: Z(:), ZP(:)
++    real(kind=kreal), intent(in)    :: R(hecMAT%N*hecMAT%NDOF)
++    real(kind=kreal), intent(inout) :: Z(hecMAT%N*hecMAT%NDOF)
++    real(kind=kreal), intent(inout) :: ZP(hecMAT%N*hecMAT%NDOF)
+     real(kind=kreal), intent(inout) :: time_precond
+     real(kind=kreal), intent(inout) :: COMMtime
+     integer(kind=kint ) :: i, iterPRE, iterPREmax
+diff --git a/hecmw1/src/solver/precond/33/hecmw_precond_SSOR_33.f90 b/hecmw1/src/solver/precond/33/hecmw_precond_SSOR_33.f90
+index 073b8e1e..348a8ae2 100644
+--- a/hecmw1/src/solver/precond/33/hecmw_precond_SSOR_33.f90
++++ b/hecmw1/src/solver/precond/33/hecmw_precond_SSOR_33.f90
+@@ -23,7 +23,7 @@ module hecmw_precond_SSOR_33
+   public:: hecmw_precond_SSOR_33_apply
+   public:: hecmw_precond_SSOR_33_clear
+ 
+-  integer(kind=kint) :: N
++  integer(kind=kint) :: N,NP
+   real(kind=kreal), pointer :: D(:) => null()
+   real(kind=kreal), pointer :: AL(:) => null()
+   real(kind=kreal), pointer :: AU(:) => null()
+@@ -59,7 +59,7 @@ contains
+     real   (kind=kreal), allocatable :: CD(:)
+     integer(kind=kint ) :: NCOLOR_IN
+     real   (kind=kreal) :: SIGMA_DIAG
+-    real   (kind=kreal) :: ALUtmp(3,3), PW(3)
++    real   (kind=kreal) :: ALUtmp(3,3), PW(3), Atmp(9)
+     integer(kind=kint ) :: ii, i, j, k
+     integer(kind=kint ) :: nthreads = 1
+     integer(kind=kint ), allocatable :: perm_tmp(:)
+@@ -81,7 +81,7 @@ contains
+     !$ nthreads = omp_get_max_threads()
+ 
+     N = hecMAT%N
+-    ! N = hecMAT%NP
++    NP = hecMAT%NP
+     NCOLOR_IN = hecmw_mat_get_ncolor_in(hecMAT)
+     SIGMA_DIAG = hecmw_mat_get_sigma_diag(hecMAT)
+     NContact = hecMAT%cmat%n_val
+@@ -124,6 +124,7 @@ contains
+     !call check_ordering
+ 
+     allocate(D(9*N), AL(9*NPL), AU(9*NPU))
++
+     call hecmw_matrix_reorder_values(N, 3, perm, iperm, &
+       hecMAT%indexL, hecMAT%indexU, hecMAT%itemL, hecMAT%itemU, &
+       hecMAT%AL, hecMAT%AU, hecMAT%D, &
+@@ -150,6 +151,13 @@ contains
+ 
+       call hecmw_matrix_reorder_renum_item(N, perm, indexCL, itemCL)
+       call hecmw_matrix_reorder_renum_item(N, perm, indexCU, itemCU)
++    else
++      NPCL = 1
++      NPCU = 1
++      allocate(indexCL(0:N), indexCU(0:N), itemCL(NPCL), itemCU(NPCU))
++      indexCL(0:N) = 1
++      indexCU(0:N) = 1
++      allocate(CAL(9*NPCL), CAU(9*NPCU))
+     end if
+ 
+     allocate(ALU(9*N))
+@@ -175,7 +183,7 @@ contains
+       enddo
+     endif
+ 
+-    !$omp parallel default(none),private(ii,ALUtmp,k,i,j,PW),shared(N,ALU,SIGMA_DIAG)
++    !$omp parallel default(none),private(ii,ALUtmp,k,i,j,PW,Atmp),shared(N,ALU,SIGMA_DIAG)
+     !$omp do
+     do ii= 1, N
+       ALUtmp(1,1)= ALU(9*ii-8) * SIGMA_DIAG
+@@ -199,15 +207,35 @@ contains
+           enddo
+         enddo
+       enddo
+-      ALU(9*ii-8)= ALUtmp(1,1)
+-      ALU(9*ii-7)= ALUtmp(1,2)
+-      ALU(9*ii-6)= ALUtmp(1,3)
+-      ALU(9*ii-5)= ALUtmp(2,1)
+-      ALU(9*ii-4)= ALUtmp(2,2)
+-      ALU(9*ii-3)= ALUtmp(2,3)
+-      ALU(9*ii-2)= ALUtmp(3,1)
+-      ALU(9*ii-1)= ALUtmp(3,2)
+-      ALU(9*ii  )= ALUtmp(3,3)
++      Atmp(1)= ALUtmp(1,1)
++      Atmp(2)= ALUtmp(1,2)
++      Atmp(3)= ALUtmp(1,3)
++      Atmp(4)= ALUtmp(2,1)
++      Atmp(5)= ALUtmp(2,2)
++      Atmp(6)= ALUtmp(2,3)
++      Atmp(7)= ALUtmp(3,1)
++      Atmp(8)= ALUtmp(3,2)
++      Atmp(9)= ALUtmp(3,3)
++
++      ALU(9*ii  )= Atmp(9)
++      ALU(9*ii-1)= -Atmp(8)*Atmp(9)
++      ALU(9*ii-2)= (Atmp(4)*Atmp(8)-Atmp(7))*Atmp(9)
++      ALU(9*ii-3)= -Atmp(5)*Atmp(6)*ALU(9*ii)
++      ALU(9*ii-4)= Atmp(5)*(1.d0-Atmp(6)*ALU(9*ii-1))
++      ALU(9*ii-5)= -Atmp(5)*(Atmp(4)+Atmp(6)*ALU(9*ii-2))
++      ALU(9*ii-6)= -Atmp(1)*(Atmp(3)*ALU(9*ii)+Atmp(2)*ALU(9*ii-3))
++      ALU(9*ii-7)= -Atmp(1)*(Atmp(3)*ALU(9*ii-1)+Atmp(2)*ALU(9*ii-4))
++      ALU(9*ii-8)= Atmp(1)*(1.d0-Atmp(3)*ALU(9*ii-2)-Atmp(2)*ALU(9*ii-5))
++
++      !ALU(9*ii-8)= ALUtmp(1,1)
++      !ALU(9*ii-7)= ALUtmp(1,2)
++      !ALU(9*ii-6)= ALUtmp(1,3)
++      !ALU(9*ii-5)= ALUtmp(2,1)
++      !ALU(9*ii-4)= ALUtmp(2,2)
++      !ALU(9*ii-3)= ALUtmp(2,3)
++      !ALU(9*ii-2)= ALUtmp(3,1)
++      !ALU(9*ii-1)= ALUtmp(3,2)
++      !ALU(9*ii  )= ALUtmp(3,3)
+     enddo
+     !$omp end do
+     !$omp end parallel
+@@ -222,74 +250,45 @@ contains
+ 
+   end subroutine hecmw_precond_SSOR_33_setup
+ 
+-  subroutine hecmw_precond_SSOR_33_apply(ZP)
+-    use hecmw_tuning_fx
+-    implicit none
+-    real(kind=kreal), intent(inout) :: ZP(:)
++  subroutine hecmw_precond_SSOR_33_apply_inner( &
++    N,NP,ZP,AL,AU,D,ALU,itemL,itemU,indexL,indexU,perm,icToBlockIndex,blockIndexToColorIndex, &
++    NPL,NPU,NColor,numOfBlock,NContact,NPCL,NPCU,indexCL,itemCL,indexCU,itemCU,CAL,CAU)
++    integer(kind=kint), intent(in)  :: N
++    integer(kind=kint), intent(in)  :: NP
++    real(kind=kreal), intent(inout) :: ZP(3*NP)
++    real(kind=kreal), intent(in)    :: AL(9*NPL)
++    real(kind=kreal), intent(in)    :: AU(9*NPU)
++    real(kind=kreal), intent(in)    :: D(9*N)
++    real(kind=kreal), intent(in)    :: ALU(9*N)
++    integer(kind=kint), intent(in)  :: itemL(NPL)
++    integer(kind=kint), intent(in)  :: itemU(NPU)
++    integer(kind=kint), intent(in)  :: indexL(0:N)
++    integer(kind=kint), intent(in)  :: indexU(0:N)
++    integer(kind=kint), intent(in)  :: perm(N)
++    integer(kind=kint), intent(in)  :: icToBlockIndex(0:NColor)
++    integer(kind=kint), intent(in)  :: blockIndexToColorIndex(0:numOfBlock+NColor)
++    integer(kind=kint), intent(in)  :: NPL
++    integer(kind=kint), intent(in)  :: NPU
++    integer(kind=kint), intent(in)  :: NColor
++    integer(kind=kint), intent(in)  :: numOfBlock
++    integer(kind=kint), intent(in)  :: NContact
++    integer(kind=kint), intent(in)  :: NPCL
++    integer(kind=kint), intent(in)  :: NPCU
++    integer(kind=kint), intent(in)  :: indexCL(0:NPCL)
++    integer(kind=kint), intent(in)  :: itemCL(N)
++    integer(kind=kint), intent(in)  :: indexCU(0:NPCU)
++    integer(kind=kint), intent(in)  :: itemCU(N)
++    real(kind=kreal), intent(in)    :: CAL(9*NPL)
++    real(kind=kreal), intent(in)    :: CAU(9*NPU)
++
+     integer(kind=kint) :: ic, i, iold, j, isL, ieL, isU, ieU, k
++    integer(kind=kint) :: blockIndex
+     real(kind=kreal) :: SW1, SW2, SW3, X1, X2, X3
+ 
+-    ! added for turning >>>
+-    integer(kind=kint), parameter :: numOfBlockPerThread = 100
+-    integer(kind=kint), save :: numOfThread = 1, numOfBlock
+-    integer(kind=kint), save, allocatable :: icToBlockIndex(:)
+-    integer(kind=kint), save, allocatable :: blockIndexToColorIndex(:)
+-    integer(kind=kint), save :: sectorCacheSize0, sectorCacheSize1
+-    integer(kind=kint) :: blockIndex, elementCount, numOfElement, ii
+-    real(kind=kreal) :: numOfElementPerBlock
+-    integer(kind=kint) :: my_rank
+-
+-    if (isFirst) then
+-      !$ numOfThread = omp_get_max_threads()
+-      numOfBlock = numOfThread * numOfBlockPerThread
+-      if (allocated(icToBlockIndex)) deallocate(icToBlockIndex)
+-      if (allocated(blockIndexToColorIndex)) deallocate(blockIndexToColorIndex)
+-      allocate (icToBlockIndex(0:NColor), &
+-        blockIndexToColorIndex(0:numOfBlock + NColor))
+-      numOfElement = N + indexL(N) + indexU(N)
+-      numOfElementPerBlock = dble(numOfElement) / numOfBlock
+-      blockIndex = 0
+-      icToBlockIndex = -1
+-      icToBlockIndex(0) = 0
+-      blockIndexToColorIndex = -1
+-      blockIndexToColorIndex(0) = 0
+-      my_rank = hecmw_comm_get_rank()
+-      ! write(9000+my_rank,*) &
+-        !      '# numOfElementPerBlock =', numOfElementPerBlock
+-      ! write(9000+my_rank,*) &
+-        !      '# ic, blockIndex, colorIndex, elementCount'
+-      do ic = 1, NColor
+-        elementCount = 0
+-        ii = 1
+-        do i = COLORindex(ic-1)+1, COLORindex(ic)
+-          elementCount = elementCount + 1
+-          elementCount = elementCount + (indexL(i) - indexL(i-1))
+-          elementCount = elementCount + (indexU(i) - indexU(i-1))
+-          if (elementCount > ii * numOfElementPerBlock &
+-              .or. i == COLORindex(ic)) then
+-            ii = ii + 1
+-            blockIndex = blockIndex + 1
+-            blockIndexToColorIndex(blockIndex) = i
+-            ! write(9000+my_rank,*) ic, blockIndex, &
+-              !      blockIndexToColorIndex(blockIndex), elementCount
+-          endif
+-        enddo
+-        icToBlockIndex(ic) = blockIndex
+-      enddo
+-      numOfBlock = blockIndex
+-
+-      call hecmw_tuning_fx_calc_sector_cache( N, 3, &
+-        sectorCacheSize0, sectorCacheSize1 )
+-
+-      isFirst = .false.
+-    endif
+-    ! <<< added for turning
+-
+-    !call start_collection("loopInPrecond33")
+-
+-    !OCL CACHE_SECTOR_SIZE(sectorCacheSize0,sectorCacheSize1)
+     !OCL CACHE_SUBSECTOR_ASSIGN(ZP)
+ 
++    if( NColor > 1 .or. NContact > 0 ) then
++
+     !$omp parallel default(none) &
+       !$omp&shared(NColor,indexL,itemL,indexU,itemU,AL,AU,D,ALU,perm,&
+       !$omp&       NContact,indexCL,itemCL,indexCU,itemCU,CAL,CAU,&
+@@ -335,17 +334,9 @@ contains
+             enddo ! j
+           endif
+ 
+-          X1= SW1
+-          X2= SW2
+-          X3= SW3
+-          X2= X2 - ALU(9*i-5)*X1
+-          X3= X3 - ALU(9*i-2)*X1 - ALU(9*i-1)*X2
+-          X3= ALU(9*i  )*  X3
+-          X2= ALU(9*i-4)*( X2 - ALU(9*i-3)*X3 )
+-          X1= ALU(9*i-8)*( X1 - ALU(9*i-6)*X3 - ALU(9*i-7)*X2)
+-          ZP(3*iold-2)= X1
+-          ZP(3*iold-1)= X2
+-          ZP(3*iold  )= X3
++          ZP(3*iold-2)= ALU(9*i-8)*SW1+ALU(9*i-7)*SW2+ALU(9*i-6)*SW3
++          ZP(3*iold-1)= ALU(9*i-5)*SW1+ALU(9*i-4)*SW2+ALU(9*i-3)*SW3
++          ZP(3*iold  )= ALU(9*i-2)*SW1+ALU(9*i-1)*SW2+ALU(9*i  )*SW3
+         enddo ! i
+       enddo ! blockIndex
+       !$omp end do
+@@ -392,24 +383,142 @@ contains
+             enddo ! j
+           endif
+ 
+-          X1= SW1
+-          X2= SW2
+-          X3= SW3
+-          X2= X2 - ALU(9*i-5)*X1
+-          X3= X3 - ALU(9*i-2)*X1 - ALU(9*i-1)*X2
+-          X3= ALU(9*i  )*  X3
+-          X2= ALU(9*i-4)*( X2 - ALU(9*i-3)*X3 )
+-          X1= ALU(9*i-8)*( X1 - ALU(9*i-6)*X3 - ALU(9*i-7)*X2)
+           iold = perm(i)
+-          ZP(3*iold-2)=  ZP(3*iold-2) - X1
+-          ZP(3*iold-1)=  ZP(3*iold-1) - X2
+-          ZP(3*iold  )=  ZP(3*iold  ) - X3
++          ZP(3*iold-2)= ZP(3*iold-2) - ALU(9*i-8)*SW1 - ALU(9*i-7)*SW2 - ALU(9*i-6)*SW3
++          ZP(3*iold-1)= ZP(3*iold-1) - ALU(9*i-5)*SW1 - ALU(9*i-4)*SW2 - ALU(9*i-3)*SW3
++          ZP(3*iold  )= ZP(3*iold  ) - ALU(9*i-2)*SW1 - ALU(9*i-1)*SW2 - ALU(9*i  )*SW3
+         enddo ! i
+       enddo ! blockIndex
+       !$omp end do
+     enddo ! ic
+     !$omp end parallel
+ 
++    else
++
++      !C-- FORWARD
++      do i = 1, N
++        iold = perm(i)
++        SW1= ZP(3*iold-2)
++        SW2= ZP(3*iold-1)
++        SW3= ZP(3*iold  )
++        isL= indexL(i-1)+1
++        ieL= indexL(i)
++        do j= isL, ieL
++          !k= perm(itemL(j))
++          k= itemL(j)
++          X1= ZP(3*k-2)
++          X2= ZP(3*k-1)
++          X3= ZP(3*k  )
++          SW1= SW1 - AL(9*j-8)*X1 - AL(9*j-7)*X2 - AL(9*j-6)*X3
++          SW2= SW2 - AL(9*j-5)*X1 - AL(9*j-4)*X2 - AL(9*j-3)*X3
++          SW3= SW3 - AL(9*j-2)*X1 - AL(9*j-1)*X2 - AL(9*j  )*X3
++        enddo ! j
++
++        ZP(3*iold-2)= ALU(9*i-8)*SW1+ALU(9*i-7)*SW2+ALU(9*i-6)*SW3
++        ZP(3*iold-1)= ALU(9*i-5)*SW1+ALU(9*i-4)*SW2+ALU(9*i-3)*SW3
++        ZP(3*iold  )= ALU(9*i-2)*SW1+ALU(9*i-1)*SW2+ALU(9*i  )*SW3
++      enddo ! i
++
++      !C-- BACKWARD
++      do i = N, 1, -1
++        SW1= 0.d0
++        SW2= 0.d0
++        SW3= 0.d0
++        isU= indexU(i-1) + 1
++        ieU= indexU(i)
++        do j= ieU, isU, -1
++          !k= perm(itemU(j))
++          k= itemU(j)
++          X1= ZP(3*k-2)
++          X2= ZP(3*k-1)
++          X3= ZP(3*k  )
++          SW1= SW1 + AU(9*j-8)*X1 + AU(9*j-7)*X2 + AU(9*j-6)*X3
++          SW2= SW2 + AU(9*j-5)*X1 + AU(9*j-4)*X2 + AU(9*j-3)*X3
++          SW3= SW3 + AU(9*j-2)*X1 + AU(9*j-1)*X2 + AU(9*j  )*X3
++        enddo ! j
++
++        iold = perm(i)
++        ZP(3*iold-2)= ZP(3*iold-2) - ALU(9*i-8)*SW1 - ALU(9*i-7)*SW2 - ALU(9*i-6)*SW3
++        ZP(3*iold-1)= ZP(3*iold-1) - ALU(9*i-5)*SW1 - ALU(9*i-4)*SW2 - ALU(9*i-3)*SW3
++        ZP(3*iold  )= ZP(3*iold  ) - ALU(9*i-2)*SW1 - ALU(9*i-1)*SW2 - ALU(9*i  )*SW3
++      enddo ! i
++
++    end if
++
++
++  end subroutine
++
++
++  subroutine hecmw_precond_SSOR_33_apply(ZP)
++    use hecmw_tuning_fx
++    implicit none
++    real(kind=kreal), intent(inout) :: ZP(:)
++    integer(kind=kint) :: ic, i
++
++    ! added for turning >>>
++    integer(kind=kint), parameter :: numOfBlockPerThread = 100
++    integer(kind=kint), save :: numOfThread = 1, numOfBlock
++    integer(kind=kint), save, allocatable :: icToBlockIndex(:)
++    integer(kind=kint), save, allocatable :: blockIndexToColorIndex(:)
++    integer(kind=kint), save :: sectorCacheSize0, sectorCacheSize1
++    integer(kind=kint) :: blockIndex, elementCount, numOfElement, ii
++    real(kind=kreal) :: numOfElementPerBlock
++    integer(kind=kint) :: my_rank
++
++    if (isFirst) then
++      !$ numOfThread = omp_get_max_threads()
++      numOfBlock = numOfThread * numOfBlockPerThread
++      if (allocated(icToBlockIndex)) deallocate(icToBlockIndex)
++      if (allocated(blockIndexToColorIndex)) deallocate(blockIndexToColorIndex)
++      allocate (icToBlockIndex(0:NColor), &
++        blockIndexToColorIndex(0:numOfBlock + NColor))
++      numOfElement = N + indexL(N) + indexU(N)
++      numOfElementPerBlock = dble(numOfElement) / numOfBlock
++      blockIndex = 0
++      icToBlockIndex = -1
++      icToBlockIndex(0) = 0
++      blockIndexToColorIndex = -1
++      blockIndexToColorIndex(0) = 0
++      my_rank = hecmw_comm_get_rank()
++      ! write(9000+my_rank,*) &
++        !      '# numOfElementPerBlock =', numOfElementPerBlock
++      ! write(9000+my_rank,*) &
++        !      '# ic, blockIndex, colorIndex, elementCount'
++      do ic = 1, NColor
++        elementCount = 0
++        ii = 1
++        do i = COLORindex(ic-1)+1, COLORindex(ic)
++          elementCount = elementCount + 1
++          elementCount = elementCount + (indexL(i) - indexL(i-1))
++          elementCount = elementCount + (indexU(i) - indexU(i-1))
++          if (elementCount > ii * numOfElementPerBlock &
++              .or. i == COLORindex(ic)) then
++            ii = ii + 1
++            blockIndex = blockIndex + 1
++            blockIndexToColorIndex(blockIndex) = i
++            ! write(9000+my_rank,*) ic, blockIndex, &
++              !      blockIndexToColorIndex(blockIndex), elementCount
++          endif
++        enddo
++        icToBlockIndex(ic) = blockIndex
++      enddo
++      numOfBlock = blockIndex
++
++      call hecmw_tuning_fx_calc_sector_cache( N, 3, &
++        sectorCacheSize0, sectorCacheSize1 )
++
++      isFirst = .false.
++    endif
++    ! <<< added for turning
++
++    !call start_collection("loopInPrecond33")
++
++    !OCL CACHE_SECTOR_SIZE(sectorCacheSize0,sectorCacheSize1)
++    call hecmw_precond_SSOR_33_apply_inner( &
++    N,NP,ZP,AL,AU,D,ALU,itemL,itemU,indexL,indexU,perm,icToBlockIndex,blockIndexToColorIndex, &
++    indexL(N),indexU(N),NColor,numOfBlock, &
++    NContact,indexCL(N),indexCU(N),indexCL,itemCL,indexCU,itemCU,CAL,CAU)
++
+     !OCL END_CACHE_SUBSECTOR
+     !OCL END_CACHE_SECTOR_SIZE
+ 
+diff --git a/hecmw1/src/solver/precond/hecmw_precond.f90 b/hecmw1/src/solver/precond/hecmw_precond.f90
+index eb077263..3be1c210 100644
+--- a/hecmw1/src/solver/precond/hecmw_precond.f90
++++ b/hecmw1/src/solver/precond/hecmw_precond.f90
+@@ -76,8 +76,9 @@ contains
+     implicit none
+     type (hecmwST_local_mesh), intent(inout) :: hecMESH
+     type (hecmwST_matrix), intent(inout)     :: hecMAT
+-    real(kind=kreal), intent(inout) :: R(:)
+-    real(kind=kreal), intent(inout) :: Z(:), ZP(:)
++    real(kind=kreal), intent(in)    :: R(hecMAT%N*hecMAT%NDOF)
++    real(kind=kreal), intent(inout) :: Z(hecMAT%NP*hecMAT%NDOF)
++    real(kind=kreal), intent(inout) :: ZP(hecMAT%NP*hecMAT%NDOF)
+     real(kind=kreal), intent(inout) :: COMMtime
+     integer(kind=kint ) :: N, NP, NNDOF, NPNDOF
+     integer(kind=kint ) :: i, iterPRE
+diff --git a/hecmw1/tools/partitioner/hecmw_mesh_edge_info.c b/hecmw1/tools/partitioner/hecmw_mesh_edge_info.c
+index eaf660c4..cc93c304 100644
+--- a/hecmw1/tools/partitioner/hecmw_mesh_edge_info.c
++++ b/hecmw1/tools/partitioner/hecmw_mesh_edge_info.c
+@@ -1200,8 +1200,40 @@ error:
+   return -1;
+ }
+ 
++static int edge_info_nn(struct hecmwST_local_mesh *local_mesh, const int is,
++                          const int ie) {
++  int node[27], node_index0, node_index1;
++  long long int edge[351];
++  int i, j, k, l, count;
++  int nn;
++
++  node_index0 = local_mesh->elem_node_index[is];
++  for (i = is; i < ie; i++) {
++    node_index1 = local_mesh->elem_node_index[i+1];
++    nn = node_index1 - node_index0;
++    for (j = 0; j < nn; j++) {
++      node[j] = local_mesh->elem_node_item[node_index0 + j];
++    }
++
++    count = 0;
++    for (k = 0; k < nn; k++) {
++      for (l = k+1; l < nn; l++) {
++        edge[count] = HECMW_mesh_hsort_edge(node[k], node[l]);
++        if (edge[count] < 0) goto error;
++      }
++    }
++    node_index0 = node_index1;
++  }
++
++  return 0;
++
++error:
++  return -1;
++}
++
+ extern int HECMW_mesh_edge_info(struct hecmwST_local_mesh *local_mesh,
+-                                struct hecmw_part_edge_data *edge_data) {
++                                struct hecmw_part_edge_data *edge_data,
++                                const int edge_create_type) {
+   int rtc;
+   int i, is, ie;
+ 
+@@ -1217,169 +1249,175 @@ extern int HECMW_mesh_edge_info(struct hecmwST_local_mesh *local_mesh,
+   rtc = HECMW_mesh_hsort_edge_init(local_mesh->n_node, local_mesh->n_elem);
+   if (rtc != 0) goto error;
+ 
+-  for (i = 0; i < local_mesh->n_elem_type; i++) {
+-    is = local_mesh->elem_type_index[i];
+-    ie = local_mesh->elem_type_index[i + 1];
+-
+-    switch (local_mesh->elem_type_item[i]) {
+-      case HECMW_ETYPE_ROD1: /* line ( 1st order ) */
+-      case HECMW_ETYPE_ROD31:
+-        if (edge_info_rod1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_ROD2: /* line ( 2nd order ) */
+-        if (edge_info_rod2(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      case HECMW_ETYPE_TRI1: /* triangle ( 1st order ) */
+-        if (edge_info_tri1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_TRI2: /* triangle ( 2nd order ) */
+-        if (edge_info_tri2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_QUA1: /* quadrangle ( 1st order ) */
+-        if (edge_info_qua1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_QUA2: /* quadrangle ( 2nd order ) */
+-        if (edge_info_qua2(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      case HECMW_ETYPE_TET1: /* tetrahedron ( 1st order ) */
+-        if (edge_info_tet1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_TET1_4: /* tetrahedron ( 1st order ) */
+-        if (edge_info_tet1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_TET2: /* tetrahedron ( 2nd order ) */
+-        if (edge_info_tet2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_PYR1: /* pyramid ( 1st order ) */
+-        if (edge_info_pyr1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_PYR2: /* pyramid ( 2nd order ) */
+-        if (edge_info_pyr2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_PRI1: /* prism ( 1st order ) */
+-        if (edge_info_pri1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_PRI2: /* prism ( 2nd order ) */
+-        if (edge_info_pri2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_HEX1: /* hexahedron ( 1st order ) */
+-        if (edge_info_hex1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_HEX1_4: /* hexahedron ( 1st order ) */
+-        if (edge_info_hex1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_HEX2: /* hexahedron ( 2nd order ) */
+-        if (edge_info_hex2(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      case HECMW_ETYPE_MST1: /* triangluar master-slave type ( 1st order ) */
+-        if (edge_info_mst1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_MST2: /* triangluar master-slave type ( 2nd order ) */
+-        if (edge_info_mst2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_MSQ1: /* quadrilateral master-slave type ( 1st order ) */
+-        if (edge_info_msq1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_MSQ2: /* quadrilateral master-slave type ( 2nd order ) */
+-        if (edge_info_msq2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_JTT1: /* triangular interface ( 1st order ) */
+-        if (edge_info_jtt1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_JTT2: /* triangluar interface ( 2nd order ) */
+-        if (edge_info_jtt2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_JTQ1: /* quadrilateral interface ( 1st order ) */
+-        if (edge_info_jtq1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_JTQ2: /* quadrilateral interface ( 2nd order ) */
+-        if (edge_info_jtq2(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      case HECMW_ETYPE_BEM1: /* beam ( 1st order ) */
+-        if (edge_info_bem1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_BEM2: /* beam ( 2nd order ) */
+-        if (edge_info_bem2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_BEM3: /* beam ( Mixed beam 341) */
+-        if (edge_info_bem3(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      case HECMW_ETYPE_SHT1: /* triangluar shell ( 1st order ) */
+-        if (edge_info_sht1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_SHT2: /* triangular shell ( 2nd order ) */
+-        if (edge_info_sht2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_SHQ1: /* quadrilateral shell ( 1st order ) */
+-        if (edge_info_shq1(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_SHQ2: /* quadrilateral shell ( 2nd order ) */
+-        if (edge_info_shq2(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_SHT6: /* triangluar shell ( Mixed solid ) */
+-        if (edge_info_sht6(local_mesh, is, ie)) goto error;
+-        break;
+-      case HECMW_ETYPE_SHQ8: /* quadrilateral shell ( Mixed solid ) */
+-        if (edge_info_shq8(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      case HECMW_ETYPE_PTT1: /* triangular patch ( 1st order ) */
+-      case HECMW_ETYPE_PTT2: /* triangular patch ( 2nd order ) */
+-      case HECMW_ETYPE_PTQ1: /* quadrilateral patch ( 1st order ) */
+-      case HECMW_ETYPE_PTQ2: /* quadrilateral patch ( 2nd order ) */
+-        break; /* no need to add any edge */
+-
+-      case HECMW_ETYPE_LN11:
+-      case HECMW_ETYPE_LN12:
+-      case HECMW_ETYPE_LN13:
+-      case HECMW_ETYPE_LN14:
+-      case HECMW_ETYPE_LN15:
+-      case HECMW_ETYPE_LN16:
+-      case HECMW_ETYPE_LN21:
+-      case HECMW_ETYPE_LN22:
+-      case HECMW_ETYPE_LN23:
+-      case HECMW_ETYPE_LN24:
+-      case HECMW_ETYPE_LN25:
+-      case HECMW_ETYPE_LN26:
+-      case HECMW_ETYPE_LN31:
+-      case HECMW_ETYPE_LN32:
+-      case HECMW_ETYPE_LN33:
+-      case HECMW_ETYPE_LN34:
+-      case HECMW_ETYPE_LN35:
+-      case HECMW_ETYPE_LN36:
+-      case HECMW_ETYPE_LN41:
+-      case HECMW_ETYPE_LN42:
+-      case HECMW_ETYPE_LN43:
+-      case HECMW_ETYPE_LN44:
+-      case HECMW_ETYPE_LN45:
+-      case HECMW_ETYPE_LN46:
+-      case HECMW_ETYPE_LN51:
+-      case HECMW_ETYPE_LN52:
+-      case HECMW_ETYPE_LN53:
+-      case HECMW_ETYPE_LN54:
+-      case HECMW_ETYPE_LN55:
+-      case HECMW_ETYPE_LN56:
+-      case HECMW_ETYPE_LN61:
+-      case HECMW_ETYPE_LN62:
+-      case HECMW_ETYPE_LN63:
+-      case HECMW_ETYPE_LN64:
+-      case HECMW_ETYPE_LN65:
+-      case HECMW_ETYPE_LN66:
+-        if (edge_info_rod1(local_mesh, is, ie)) goto error;
+-        break;
+-
+-      default:
+-        HECMW_set_error(HECMW_PART_E_INVALID_ETYPE, "%d",
+-                        local_mesh->elem_type_item[i]);
+-        goto error;
++  if ( edge_create_type == 0 ) { //element edge based creation
++    for (i = 0; i < local_mesh->n_elem_type; i++) {
++      is = local_mesh->elem_type_index[i];
++      ie = local_mesh->elem_type_index[i + 1];
++
++      switch (local_mesh->elem_type_item[i]) {
++        case HECMW_ETYPE_ROD1: /* line ( 1st order ) */
++        case HECMW_ETYPE_ROD31:
++          if (edge_info_rod1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_ROD2: /* line ( 2nd order ) */
++          if (edge_info_rod2(local_mesh, is, ie)) goto error;
++          break;
++
++        case HECMW_ETYPE_TRI1: /* triangle ( 1st order ) */
++          if (edge_info_tri1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_TRI2: /* triangle ( 2nd order ) */
++          if (edge_info_tri2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_QUA1: /* quadrangle ( 1st order ) */
++          if (edge_info_qua1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_QUA2: /* quadrangle ( 2nd order ) */
++          if (edge_info_qua2(local_mesh, is, ie)) goto error;
++          break;
++
++        case HECMW_ETYPE_TET1: /* tetrahedron ( 1st order ) */
++          if (edge_info_tet1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_TET1_4: /* tetrahedron ( 1st order ) */
++          if (edge_info_tet1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_TET2: /* tetrahedron ( 2nd order ) */
++          if (edge_info_tet2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_PYR1: /* pyramid ( 1st order ) */
++          if (edge_info_pyr1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_PYR2: /* pyramid ( 2nd order ) */
++          if (edge_info_pyr2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_PRI1: /* prism ( 1st order ) */
++          if (edge_info_pri1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_PRI2: /* prism ( 2nd order ) */
++          if (edge_info_pri2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_HEX1: /* hexahedron ( 1st order ) */
++          if (edge_info_hex1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_HEX1_4: /* hexahedron ( 1st order ) */
++          if (edge_info_hex1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_HEX2: /* hexahedron ( 2nd order ) */
++          if (edge_info_hex2(local_mesh, is, ie)) goto error;
++          break;
++
++        case HECMW_ETYPE_MST1: /* triangluar master-slave type ( 1st order ) */
++          if (edge_info_mst1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_MST2: /* triangluar master-slave type ( 2nd order ) */
++          if (edge_info_mst2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_MSQ1: /* quadrilateral master-slave type ( 1st order ) */
++          if (edge_info_msq1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_MSQ2: /* quadrilateral master-slave type ( 2nd order ) */
++          if (edge_info_msq2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_JTT1: /* triangular interface ( 1st order ) */
++          if (edge_info_jtt1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_JTT2: /* triangluar interface ( 2nd order ) */
++          if (edge_info_jtt2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_JTQ1: /* quadrilateral interface ( 1st order ) */
++          if (edge_info_jtq1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_JTQ2: /* quadrilateral interface ( 2nd order ) */
++          if (edge_info_jtq2(local_mesh, is, ie)) goto error;
++          break;
++
++        case HECMW_ETYPE_BEM1: /* beam ( 1st order ) */
++          if (edge_info_bem1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_BEM2: /* beam ( 2nd order ) */
++          if (edge_info_bem2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_BEM3: /* beam ( Mixed beam 341) */
++          if (edge_info_bem3(local_mesh, is, ie)) goto error;
++          break;
++
++        case HECMW_ETYPE_SHT1: /* triangluar shell ( 1st order ) */
++          if (edge_info_sht1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_SHT2: /* triangular shell ( 2nd order ) */
++          if (edge_info_sht2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_SHQ1: /* quadrilateral shell ( 1st order ) */
++          if (edge_info_shq1(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_SHQ2: /* quadrilateral shell ( 2nd order ) */
++          if (edge_info_shq2(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_SHT6: /* triangluar shell ( Mixed solid ) */
++          if (edge_info_sht6(local_mesh, is, ie)) goto error;
++          break;
++        case HECMW_ETYPE_SHQ8: /* quadrilateral shell ( Mixed solid ) */
++          if (edge_info_shq8(local_mesh, is, ie)) goto error;
++          break;
++
++        case HECMW_ETYPE_PTT1: /* triangular patch ( 1st order ) */
++        case HECMW_ETYPE_PTT2: /* triangular patch ( 2nd order ) */
++        case HECMW_ETYPE_PTQ1: /* quadrilateral patch ( 1st order ) */
++        case HECMW_ETYPE_PTQ2: /* quadrilateral patch ( 2nd order ) */
++          break; /* no need to add any edge */
++
++        case HECMW_ETYPE_LN11:
++        case HECMW_ETYPE_LN12:
++        case HECMW_ETYPE_LN13:
++        case HECMW_ETYPE_LN14:
++        case HECMW_ETYPE_LN15:
++        case HECMW_ETYPE_LN16:
++        case HECMW_ETYPE_LN21:
++        case HECMW_ETYPE_LN22:
++        case HECMW_ETYPE_LN23:
++        case HECMW_ETYPE_LN24:
++        case HECMW_ETYPE_LN25:
++        case HECMW_ETYPE_LN26:
++        case HECMW_ETYPE_LN31:
++        case HECMW_ETYPE_LN32:
++        case HECMW_ETYPE_LN33:
++        case HECMW_ETYPE_LN34:
++        case HECMW_ETYPE_LN35:
++        case HECMW_ETYPE_LN36:
++        case HECMW_ETYPE_LN41:
++        case HECMW_ETYPE_LN42:
++        case HECMW_ETYPE_LN43:
++        case HECMW_ETYPE_LN44:
++        case HECMW_ETYPE_LN45:
++        case HECMW_ETYPE_LN46:
++        case HECMW_ETYPE_LN51:
++        case HECMW_ETYPE_LN52:
++        case HECMW_ETYPE_LN53:
++        case HECMW_ETYPE_LN54:
++        case HECMW_ETYPE_LN55:
++        case HECMW_ETYPE_LN56:
++        case HECMW_ETYPE_LN61:
++        case HECMW_ETYPE_LN62:
++        case HECMW_ETYPE_LN63:
++        case HECMW_ETYPE_LN64:
++        case HECMW_ETYPE_LN65:
++        case HECMW_ETYPE_LN66:
++          if (edge_info_rod1(local_mesh, is, ie)) goto error;
++          break;
++
++        default:
++          HECMW_set_error(HECMW_PART_E_INVALID_ETYPE, "%d",
++                          local_mesh->elem_type_item[i]);
++          goto error;
++      }
+     }
++
++  } else if ( edge_create_type == 1 ) { //element volume based creation
++    if (edge_info_nn(local_mesh, 0, local_mesh->n_elem)) goto error;
+   }
+ 
++
+   edge_data->n_edge = HECMW_mesh_hsort_edge_get_n();
+   if (edge_data->n_edge < 0) goto error;
+ 
+diff --git a/hecmw1/tools/partitioner/hecmw_mesh_edge_info.h b/hecmw1/tools/partitioner/hecmw_mesh_edge_info.h
+index 5d33acb6..445b9b6c 100644
+--- a/hecmw1/tools/partitioner/hecmw_mesh_edge_info.h
++++ b/hecmw1/tools/partitioner/hecmw_mesh_edge_info.h
+@@ -10,6 +10,7 @@
+ #include "hecmw_part_struct.h"
+ 
+ extern int HECMW_mesh_edge_info(struct hecmwST_local_mesh *mesh,
+-                                struct hecmw_part_edge_data *edge_data);
++                                struct hecmw_part_edge_data *edge_data,
++                                const int edge_create_type);
+ 
+ #endif /* INC_HECMW_MESH_EDGE_INFO */
+diff --git a/hecmw1/tools/partitioner/hecmw_partition.c b/hecmw1/tools/partitioner/hecmw_partition.c
+index 9235eb71..f8fe96b5 100644
+--- a/hecmw1/tools/partitioner/hecmw_partition.c
++++ b/hecmw1/tools/partitioner/hecmw_partition.c
+@@ -2952,6 +2952,102 @@ error:
+   return -1;
+ }
+ 
++static int metis_partition_nb_ndweight(
++    struct hecmwST_local_mesh *global_mesh,
++    const struct hecmw_part_cont_data *cont_data,
++    const struct hecmw_part_edge_data *edge_data) {
++  int n_edgecut;
++  int *node_graph_index = NULL; /* index for nodal graph */
++  int *node_graph_item  = NULL; /* member of nodal graph */
++  int *belong_domain    = NULL;
++  int rtc;
++  int i, j, node, nn;
++  int ncon;
++  int *node_weight = NULL;
++  int *mark        = NULL;
++
++  int *count    = NULL; /* tmp */
++
++  node_graph_index = (int *)HECMW_calloc(global_mesh->n_node + 1, sizeof(int));
++  if (node_graph_index == NULL) {
++    HECMW_set_error(errno, "");
++    goto error;
++  }
++  node_graph_item = (int *)HECMW_malloc(sizeof(int) * edge_data->n_edge * 2);
++  if (node_graph_item == NULL) {
++    HECMW_set_error(errno, "");
++    goto error;
++  }
++
++  HECMW_log(HECMW_LOG_DEBUG, "Starting creation of node graph...\n");
++
++  rtc = create_node_graph(global_mesh, edge_data, node_graph_index,
++                          node_graph_item);
++  if (rtc != RTC_NORMAL) goto error;
++
++  HECMW_log(HECMW_LOG_DEBUG, "Creation of node graph done\n");
++
++  ncon = 1;
++  node_weight = (int *)HECMW_calloc(global_mesh->n_node * ncon, sizeof(int));
++  if (node_weight == NULL) {
++    HECMW_set_error(errno, "");
++    goto error;
++  }
++
++  for (i = 0; i < global_mesh->n_node; i++) {
++    node_weight[i] = 1;
++  }
++  for (i = 0; i < edge_data->n_edge * 2; i++) {
++    node_weight[node_graph_item[i]] += 1;
++  }
++
++  belong_domain = (int *)HECMW_calloc(global_mesh->n_node, sizeof(int));
++  if (belong_domain == NULL) {
++    HECMW_set_error(errno, "");
++    goto error;
++  }
++
++  switch (cont_data->method) {
++    case HECMW_PART_METHOD_PMETIS: /* pMETIS */
++      n_edgecut = pmetis_interface_with_weight(
++          global_mesh->n_node, ncon, global_mesh->n_subdomain, node_graph_index,
++          node_graph_item, node_weight, belong_domain);
++      if (n_edgecut < 0) goto error;
++      break;
++
++    case HECMW_PART_METHOD_KMETIS: /* kMETIS */
++      n_edgecut = kmetis_interface_with_weight(
++          global_mesh->n_node, ncon, global_mesh->n_subdomain, node_graph_index,
++          node_graph_item, node_weight, belong_domain);
++      if (n_edgecut < 0) goto error;
++      break;
++
++    default:
++      HECMW_set_error(HECMW_PART_E_INVALID_PMETHOD, "");
++      goto error;
++  }
++
++  for (i = 0; i < global_mesh->n_node; i++) {
++    global_mesh->node_ID[2 * i + 1] = belong_domain[i];
++  }
++
++  HECMW_free(node_graph_index);
++  HECMW_free(node_graph_item);
++  HECMW_free(belong_domain);
++  if (node_weight) HECMW_free(node_weight);
++
++  return n_edgecut;
++
++error:
++  HECMW_free(node_graph_index);
++  HECMW_free(node_graph_item);
++  HECMW_free(belong_domain);
++  if (node_weight) HECMW_free(node_weight);
++  if (mark) HECMW_free(mark);
++
++  return -1;
++}
++
+ static int metis_partition_nb(struct hecmwST_local_mesh *global_mesh,
+                               const struct hecmw_part_cont_data *cont_data,
+                               const struct hecmw_part_edge_data *edge_data) {
+@@ -2970,7 +3066,8 @@ static int metis_partition_nb(struct hecmwST_local_mesh *global_mesh,
+         return -1;
+     }
+   } else {
+-    return metis_partition_nb_default(global_mesh, cont_data, edge_data);
++    //return metis_partition_nb_default(global_mesh, cont_data, edge_data);
++    return metis_partition_nb_ndweight(global_mesh, cont_data, edge_data);
+   }
+ }
+ 
+@@ -3043,7 +3140,7 @@ static int set_node_belong_domain_nb(
+ 
+   HECMW_log(HECMW_LOG_DEBUG, "Starting creation of mesh edge info...\n");
+ 
+-  rtc = HECMW_mesh_edge_info(global_mesh, edge_data);
++  rtc = HECMW_mesh_edge_info(global_mesh, edge_data, 1);
+   if (rtc != 0) goto error;
+ 
+   HECMW_log(HECMW_LOG_DEBUG, "Creation of mesh edge info done\n");
+-- 
+2.19.1.windows.1
+

@@ -1,0 +1,29 @@
+--- ASIS/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/lduMatrix/lduMatrixATmul.C	2018-12-21 01:13:33.000000000 +0900
++++ TUNE/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/lduMatrix/lduMatrixATmul.C	2020-12-18 01:41:50.000000000 +0900
+@@ -75,8 +75,24 @@ void Foam::lduMatrix::Amul
+ 
+     for (label face=0; face<nFaces; face++)
+     {
+-        ApsiPtr[uPtr[face]] += lowerPtr[face]*psiPtr[lPtr[face]];
+-        ApsiPtr[lPtr[face]] += upperPtr[face]*psiPtr[uPtr[face]];
++// Fujitsu 2020/12/18 mod >>>
++        // ApsiPtr[uPtr[face]] += lowerPtr[face]*psiPtr[lPtr[face]];
++	// ApsiPtr[lPtr[face]] += upperPtr[face]*psiPtr[uPtr[face]];
++        label uPtmp = uPtr[face];
++        label lPtmp = lPtr[face];
++        scalar lowerPtrtmp = lowerPtr[face];
++        scalar upperPtrtmp = upperPtr[face];
++        scalar psiu = psiPtr[uPtmp];
++        scalar psil = psiPtr[lPtmp];
++        scalar lowerApsiPtr = ApsiPtr[uPtmp];
++        scalar upperApsiPtr = ApsiPtr[lPtmp];
++        
++        scalar tmplowerApsiPtr = lowerApsiPtr+lowerPtrtmp*psil;
++        scalar tmpupperApsiPtr = upperApsiPtr+upperPtrtmp*psiu;
++        
++        ApsiPtr[uPtmp] = tmplowerApsiPtr;
++        ApsiPtr[lPtmp] = tmpupperApsiPtr;
++// Fujitsu 2020/12/18 mod <<<
+     }
+ 
+     // Update interface interfaces

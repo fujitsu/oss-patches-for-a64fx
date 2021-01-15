@@ -1,0 +1,26 @@
+diff -Naur specfem3d_globe-master/src/specfem3D/compute_forces_crust_mantle_Dev.F90 specfem3d_globe-master-00orig/src/specfem3D/compute_forces_crust_mantle_Dev.F90
+--- specfem3d_globe-master/src/specfem3D/compute_forces_crust_mantle_Dev.F90	2021-02-04 10:06:22.064576414 +0900
++++ specfem3d_globe-master-00orig/src/specfem3D/compute_forces_crust_mantle_Dev.F90	2019-04-12 06:28:27.000000000 +0900
+@@ -408,10 +408,6 @@
+ 
+     ! save deviatoric strain for Runge-Kutta scheme
+     if (COMPUTE_AND_STORE_STRAIN) then
+-! Fujitsu 2021/02/04 add >>>
+-!ocl noswp
+-!ocl nosimd
+-! Fujitsu 2021/02/04 add <<<
+       epsilondev_xx(:,:,:,ispec) = epsilondev_loc(:,:,:,1)
+       epsilondev_yy(:,:,:,ispec) = epsilondev_loc(:,:,:,2)
+       epsilondev_xy(:,:,:,ispec) = epsilondev_loc(:,:,:,3)
+@@ -431,11 +427,6 @@
+     ! global node index
+     iglob = phase_iglob(iglob_p,iphase)
+     ! loops over valence points
+-
+-! Fujitsu 2021/02/04 add >>>
+-!ocl noswp
+-!ocl nosimd
+-! Fujitsu 2021/02/04 add <<<
+     do ip = ibool_inv_st(iglob_p,iphase),ibool_inv_st(iglob_p+1,iphase)-1
+       ! local 1D index from array ibool
+       ijk_spec = ibool_inv_tbl(ip,iphase)

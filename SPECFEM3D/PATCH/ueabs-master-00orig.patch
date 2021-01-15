@@ -1,0 +1,133 @@
+diff -Naur ueabs-master-00orig/specfem3d/compile.sh ueabs-master/specfem3d/compile.sh
+--- ueabs-master-00orig/specfem3d/compile.sh	2019-07-02 23:31:00.000000000 +0900
++++ ueabs-master/specfem3d/compile.sh	2020-03-31 14:12:40.000000000 +0900
+@@ -1,4 +1,20 @@
+ #!/bin/bash
++#PJM -N comp_specfem3d
++#PJM -L rscgrp=def_grp
++#PJM -L rscunit=rscunit_ft01
++#PJM -L node=1
++#PJM -L elapse=0:15:00
++#PJM --no-stging
++#PJM -j
++
++cd ${PJM_O_WORKDIR:-'.'}
++
++export LANG=C
++
++LANG_HOME=/opt/FJSVxtclanga/tcsds-1.2.23
++export OPAL_PREFIX=${LANG_HOME}
++export PATH=${LANG_HOME}/bin:${PATH}
++export LD_LIBRARY_PATH=${LANG_HOME}/lib64:${LD_LIBRARY_PATH}
+ 
+ echo "==> Choose supercomputer :"
+ echo "     - occigen"
+@@ -14,7 +30,8 @@
+ echo "     - frioul "
+ echo "     - deepsdv "
+ echo "     - hazelhen  "
+-read machine
++#read machine
++machine=a64fx
+ 
+ source ./env/env_${machine}
+ 
+@@ -22,15 +39,16 @@
+     echo "==> Untar "
+     #Clone the repository
+     cd $install_dir
+-    git -c http.sslVerify=false clone  https://github.com/geodynamics/specfem3d_globe.git
+-    cd specfem3d_globe/
++    #git -c http.sslVerify=false clone  https://github.com/geodynamics/specfem3d_globe.git
++    #cd specfem3d_globe/
+     # Checkout of 31 ocotbre 2017 version
+-    git checkout b1d6ba966496f269611eff8c2cf1f22bcdac2bd9
++    #git checkout b1d6ba966496f269611eff8c2cf1f22bcdac2bd9
+ 
+     #Copy sources
+     #source_dir=$HOME/git/specfem3d_globe
+-    #echo "Copy source"
+-    #cp -r $source_dir $install_dir
++    source_dir=/fefs01/oss/kenta-w/work/ToGithub/SPECFEM3D/org/specfem3d_globe
++    echo "Copy source"
++    cp -r $source_dir $install_dir
+     cd $ueabs_dir
+ }
+ 
+@@ -43,7 +61,8 @@
+     while true
+     do
+         echo "===> Choose Test Case : (1, 2 or 3)"
+-        read answer
++        #read answer
++        answer=3
+         if [[ $answer -eq 1 || $answer -eq 2 || $answer -eq 3 ]]; then break;fi
+     done
+     if [ $answer = "1" ]; then
+@@ -68,7 +87,9 @@
+         mkdir -p $install_dir
+         mv $install_dir/../specfem3d_globe  $install_dir/.
+         cp $ueabs_dir/test_cases/SPECFEM3D_TestCaseC/* $install_dir/specfem3d_globe/DATA/.
+-
++	sed -i s/"NCHUNKS                         = 6"/"NCHUNKS                         = 1"/g  $install_dir/specfem3d_globe/DATA/Par_file
++	sed -i s/"NPROC_XI                        = 1"/"NPROC_XI                        = 2"/g  $install_dir/specfem3d_globe/DATA/Par_file
++	sed -i s/"NPROC_ETA                       = 1"/"NPROC_ETA                       = 2"/g  $install_dir/specfem3d_globe/DATA/Par_file
+     fi
+     cd $install_dir/specfem3d_globe
+     if [ $machine = "daint-gpu" ] || [ $machine = "davide" ]; then
+@@ -86,7 +107,7 @@
+ 	./configure --build=ppc64 --with-cuda=cuda5
+     else
+ 	echo "Configure for CPU only system"
+-        ./configure  --enable-openmp
++        ./configure  --host=aarch64-linux-gnu --build=x86_64-cross-linux-gnu --enable-openmp
+     fi
+     echo $machine
+     #if [ $machine = "occigen" ] || [ $machine = "marenostrum" ] || [ $machine = "marconi-knl" ];then
+@@ -95,7 +116,7 @@
+     #fi
+     echo "===> Build"
+     make clean
+-    time -p make -j 12 all >& make.log &
++    time -p make -j 4 all >& make.log 
+ }
+ 
+ Clean(){
+@@ -108,7 +129,8 @@
+                     echo "1 : $install_dir/TestCaseA"
+                     echo "2 : $install_dir/TestCaseB"
+                     echo "3 : $install_dir/TestCaseC"
+-                    read answer
++                    #read answer
++                    answer=3
+                     if [[ $answer -eq 1 || $answer -eq 2 || $answer -eq 3 ]]; then break;fi
+                 done
+                 if [ $answer = "1" ]; then
+@@ -126,7 +148,7 @@
+ 
+ Deploy(){
+     echo "install_dir ="$install_dir
+-    if [ $machine = "occigen" ] || [ $machine = "marenostrum" ] || [ $machine = "marconi-knl" ] || [ $machine = "daint-cpu-only" ] || [ $machine = "daint-gpu" ]  || [ $machine = "davide" ] || [ $machine = "juwels" ] || [ $machine = "irene-skl" ] || [ $machine = "irene-knl" ] || [ $machine = "dibona" ] || [ $machine = "frioul" ]  || [ $machine = "deepsdv" ] || [ $machine = "hazelhen" ];then
++    if [ $machine = "a64fx" ] || [ $machine = "occigen" ] || [ $machine = "marenostrum" ] || [ $machine = "marconi-knl" ] || [ $machine = "daint-cpu-only" ] || [ $machine = "daint-gpu" ]  || [ $machine = "davide" ] || [ $machine = "juwels" ] || [ $machine = "irene-skl" ] || [ $machine = "irene-knl" ] || [ $machine = "dibona" ] || [ $machine = "frioul" ]  || [ $machine = "deepsdv" ] || [ $machine = "hazelhen" ];then
+         echo "==> Install on $machine :"
+ 	mkdir -p $install_dir
+ 	Clean
+diff -Naur ueabs-master-00orig/specfem3d/env/env_a64fx ueabs-master/specfem3d/env/env_a64fx
+--- ueabs-master-00orig/specfem3d/env/env_a64fx	1970-01-01 09:00:00.000000000 +0900
++++ ueabs-master/specfem3d/env/env_a64fx	2020-03-31 14:13:00.000000000 +0900
+@@ -0,0 +1,15 @@
++#!/bin/bash
++
++CCCSCRATCHDIR=/fefs01/oss/kenta-w/work/ToGithub/SPECFEM3D/ueabs-master/specfem3d
++
++export machine=a64fx
++export software=specfem3d_globe
++export version=31octobre
++
++export install_dir=$CCCSCRATCHDIR/benchmarks/$machine/$software/$version/
++
++export CC="mpifcc"
++export FC="mpifrt"
++export MPIFC=$FC
++export FCFLAGS="-Kfast,openmp,loop_nofission -Kcmodel=large -Koptmsg=2 -Nlst=t -DUSE_FP32 -DOPT_STREAMS -DFORCE_VECTORIZATION"
++export CFLAGS="-Kfast,openmp,loop_nofission -Kcmodel=large  -Koptmsg=2 -Nlst"

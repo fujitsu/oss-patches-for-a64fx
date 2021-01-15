@@ -1,0 +1,109 @@
+--- ASIS/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/preconditioners/DICPreconditioner/DICPreconditioner.C	2018-12-21 01:13:33.000000000 +0900
++++ TUNE/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/preconditioners/DICPreconditioner/DICPreconditioner.C	2020-12-18 01:50:36.000000000 +0900
+@@ -46,9 +46,17 @@ Foam::DICPreconditioner::DICPrecondition
+ )
+ :
+     lduMatrix::preconditioner(sol),
+-    rD_(sol.matrix().diag())
++// Fujitsu 2020/12/18 mod >>>
++    //rD_(sol.matrix().diag())
++    rD_(sol.matrix().diag()),
++    rDu_(sol.matrix().upper()),
++    rDu2_(sol.matrix().upper())
++// Fujitsu 2020/12/18 mod <<<
+ {
+-    calcReciprocalD(rD_, sol.matrix());
++// Fujitsu 2020/12/18 mod >>>
++    //calcReciprocalD(rD_, sol.matrix());
++    calcReciprocalD2(rD_, rDu_, rDu2_, sol.matrix());
++// Fujitsu 2020/12/18 mod <<<
+ }
+ 
+ 
+@@ -73,6 +81,39 @@ void Foam::DICPreconditioner::calcRecipr
+         rDPtr[uPtr[face]] -= upperPtr[face]*upperPtr[face]/rDPtr[lPtr[face]];
+     }
+ 
++    // Calculate the reciprocal of the preconditioned diagonal
++    const label nCells = rD.size();
++
++    for (label cell=0; cell<nCells; cell++)
++    {
++        rDPtr[cell] = 1.0/rDPtr[cell];
++    }
++}
++
++
++// Fujitsu 2020/12/18 add >>>
++void Foam::DICPreconditioner::calcReciprocalD2
++(
++    scalarField& rD,
++    scalarField& rDu,
++    scalarField& rDu2,
++    const lduMatrix& matrix
++)
++{
++    scalar* __restrict__ rDPtr = rD.begin();
++    scalar* __restrict__ rDuPtr = rDu.begin();
++    scalar* __restrict__ rDuPtr2 = rDu2.begin();
++
++    const label* const __restrict__ uPtr = matrix.lduAddr().upperAddr().begin();
++    const label* const __restrict__ lPtr = matrix.lduAddr().lowerAddr().begin();
++    const scalar* const __restrict__ upperPtr = matrix.upper().begin();
++
++    // Calculate the DIC diagonal
++    const label nFaces = matrix.upper().size();
++    for (label face=0; face<nFaces; face++)
++    {
++        rDPtr[uPtr[face]] -= upperPtr[face]*upperPtr[face]/rDPtr[lPtr[face]];
++    }
+ 
+     // Calculate the reciprocal of the preconditioned diagonal
+     const label nCells = rD.size();
+@@ -81,7 +122,14 @@ void Foam::DICPreconditioner::calcRecipr
+     {
+         rDPtr[cell] = 1.0/rDPtr[cell];
+     }
++
++    for (label face=0; face<nFaces; face++)
++    {
++        rDuPtr[face] = upperPtr[face]*rDPtr[lPtr[face]];
++        rDuPtr2[face] = upperPtr[face]*rDPtr[uPtr[face]];
++    } 
+ }
++// Fujitsu 2020/12/18 add <<<
+ 
+ 
+ void Foam::DICPreconditioner::precondition
+@@ -94,6 +142,10 @@ void Foam::DICPreconditioner::preconditi
+     scalar* __restrict__ wAPtr = wA.begin();
+     const scalar* __restrict__ rAPtr = rA.begin();
+     const scalar* __restrict__ rDPtr = rD_.begin();
++// Fujitsu 2020/12/18 add >>>
++    const scalar* __restrict__ rDuPtr = rDu_.begin();
++    const scalar* __restrict__ rDuPtr2 = rDu2_.begin();
++// Fujitsu 2020/12/18 add <<<
+ 
+     const label* const __restrict__ uPtr =
+         solver_.matrix().lduAddr().upperAddr().begin();
+@@ -113,12 +165,18 @@ void Foam::DICPreconditioner::preconditi
+ 
+     for (label face=0; face<nFaces; face++)
+     {
+-        wAPtr[uPtr[face]] -= rDPtr[uPtr[face]]*upperPtr[face]*wAPtr[lPtr[face]];
++// Fujitsu 2020/12/18 mod >>>
++        //wAPtr[uPtr[face]] -= rDPtr[uPtr[face]]*upperPtr[face]*wAPtr[lPtr[face]];
++        wAPtr[uPtr[face]] -= rDuPtr2[face]*wAPtr[lPtr[face]];
++// Fujitsu 2020/12/18 mod <<<
+     }
+ 
+     for (label face=nFacesM1; face>=0; face--)
+     {
+-        wAPtr[lPtr[face]] -= rDPtr[lPtr[face]]*upperPtr[face]*wAPtr[uPtr[face]];
++// Fujitsu 2020/12/18 mod >>>
++        //wAPtr[lPtr[face]] -= rDPtr[lPtr[face]]*upperPtr[face]*wAPtr[uPtr[face]];
++        wAPtr[lPtr[face]] -= rDuPtr[face]*wAPtr[uPtr[face]];
++// Fujitsu 2020/12/18 mod <<<
+     }
+ }
+ 

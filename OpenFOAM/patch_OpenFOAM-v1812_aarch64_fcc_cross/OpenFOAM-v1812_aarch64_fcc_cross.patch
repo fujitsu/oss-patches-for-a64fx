@@ -1,0 +1,411 @@
+diff -uprN SRC/OpenFOAM-v1812/etc/config.sh/settings DST/OpenFOAM-v1812/etc/config.sh/settings
+--- SRC/OpenFOAM-v1812/etc/config.sh/settings	2020-12-18 00:09:19.000000000 +0900
++++ DST/OpenFOAM-v1812/etc/config.sh/settings	2020-12-18 01:13:57.000000000 +0900
+@@ -248,8 +248,8 @@ Arm*)     # Arm system compilers
+     export WM_CXX='armclang++'
+     ;;
+ Fcc*)     # Fujitsu compilers
+-    export WM_CC='mpifcc'
+-    export WM_CXX='mpiFCC'
++    export WM_CC='mpifccpx'
++    export WM_CXX='mpiFCCpx'
+     ;;
+ esac
+
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c	2020-12-18 01:06:16.000000000 +0900
+@@ -0,0 +1,16 @@
++SUFFIXES += .c
++
++cc          = fccpx
++
++cWARN       = 
++
++include $(DEFAULT_RULES)/c$(WM_COMPILE_OPTION)
++
++cFLAGS      = $(GFLAGS) $(cWARN) $(cOPT) $(cDBUG) $(LIB_HEADER_DIRS) -KPIC
++
++ctoo        = $(WM_SCHEDULER) $(cc) $(cFLAGS) -c $< -o $@
++
++LINK_LIBS   = $(cDBUG)
++
++LINKLIBSO   = $(cc) -shared
++LINKEXE     = $(cc) -Xlinker --add-needed -Xlinker -z -Xlinker nodefs -Wl,-rpath-link -Wl,$(LD_LIBRARY_PATH)
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++	2020-12-18 01:07:39.000000000 +0900
+@@ -0,0 +1,22 @@
++#include $(GENERAL_RULES)/Gcc/c++
++
++SUFFIXES += .C .cc .cpp .cxx
++c++WARN     =
++
++CC          = mpiFCCpx
++
++include $(DEFAULT_RULES)/c++$(WM_COMPILE_OPTION)
++
++ptFLAGS     = -DNoRepository
++
++c++FLAGS    = $(GFLAGS) $(c++WARN) $(c++OPT) $(c++DBUG) $(ptFLAGS) $(LIB_HEADER_DIRS) -KPIC
++
++Ctoo        = $(WM_SCHEDULER) $(CC) $(c++FLAGS) -c $< -o $@
++cxxtoo      = $(Ctoo)
++cctoo       = $(Ctoo)
++cpptoo      = $(Ctoo)
++
++LINK_LIBS   = $(c++DBUG)
++
++LINKLIBSO   = $(CC) $(c++FLAGS) -shared -Xlinker --add-needed -Xlinker --no-as-needed
++LINKEXE     = $(CC) $(c++FLAGS) -Xlinker --add-needed -Xlinker --no-as-needed -Wl,-rpath-link -Wl,$(LD_LIBRARY_PATH)
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Debug DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Debug
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Debug	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Debug	2020-12-18 00:10:30.000000000 +0900
+@@ -0,0 +1,2 @@
++c++DBUG     = -ggdb3 -DFULLDEBUG
++c++OPT      = -O0 -fdefault-inline
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Opt DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Opt
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Opt	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Opt	2020-12-18 00:10:30.000000000 +0900
+@@ -0,0 +1,118 @@
++c++DBUG     =
++##Default Option (No Change !)
++#c++OPT      = -Nclang -std=gnu++11 -stdlib=libc++ -ffj-lst=t --verbose -Rpass=.* -fopenmp -O3 -ffj-largepage
++#c++OPT      = -Nclang -std=gnu++11 -stdlib=libc++ --verbose -fopenmp -O3 -ffj-largepage
++c++OPT      = -Nclang -std=gnu++11 --verbose -ffj-largepage 
++
++#c++OPT     += -O0
++#c++OPT     += -O1
++#c++OPT     += -O2
++c++OPT     += -O3
++
++#c++OPT     += -stdlib=libc++
++c++OPT     += -stdlib=libstdc++
++
++#c++OPT     += -march=armv8.3-a+nosve
++c++OPT     += -march=armv8.3-a+sve
++
++#--------------------------------------------------
++
++##fj-eval-concurrent / with -ffast-math
++c++OPT     += -ffj-eval-concurrent -ffast-math
++#c++OPT     += -ffj-no-eval-concurrent
++
++##fj-fast-matmul
++c++OPT += -ffj-fast-matmul
++#c++OPT += -ffj-no-fast-matmul
++
++##fj-fp-relaxed
++c++OPT += -ffj-fp-relaxed
++#c++OPT += -ffj-no-fp-relaxed
++
++##fj-hpctag
++c++OPT += -ffj-hpctag
++#c++OPT += -ffj-no-hpctag
++
++##fj-ilfunc / with -fbuiltin
++#c++OPT     += -ffj-no-ilfunc
++#c++OPT     += -ffj-ilfunc=loop -fbuiltin
++c++OPT     += -ffj-ilfunc=procedure -fbuiltin
++
++##fj-loop-interchange
++#c++OPT += -ffj-loop-interchange
++c++OPT += -ffj-no-loop-interchange
++
++##fj-optlib-string
++#c++OPT += -ffj-optlib-string
++c++OPT += -ffj-no-optlib-string
++
++##fj-preex
++c++OPT     += -ffj-preex
++#c++OPT     += -ffj-no-preex
++
++##builtin
++#c++OPT     += -fbuiltin
++#c++OPT     += -fno-builtin
++
++##fast-math
++#c++OPT     += -ffast-math
++#c++OPT     += -fno-fast-math
++
++##finite-math-only
++c++OPT     += -ffinite-math-only
++#c++OPT     += -fno-finite-math-only
++
++##fp-contract
++c++OPT     += -ffp-contract=fast
++#c++OPT     += -ffp-contract=on
++#c++OPT     += -ffp-contract=off
++
++##inline-functions
++c++OPT     += -finline-functions
++#c++OPT     += -fno-inline-functions
++
++##lto
++#c++OPT     += -flto
++c++OPT     += -fno-lto
++
++##omit-frame-pointer
++c++OPT     += -fomit-frame-pointer
++#c++OPT     += -fno-omit-frame-pointer
++
++##openmp
++#c++OPT += -fopenmp
++c++OPT += -fno-openmp
++
++##openmp-simd
++#c++OPT += -fopenmp-simd
++c++OPT += -fno-openmp-simd
++
++##reroll-loops
++c++OPT     += -freroll-loops
++#c++OPT     += -fno-reroll-loops
++
++##slp-vectorize
++c++OPT += -fslp-vectorize
++#c++OPT += -fno-slp-vectorize
++
++##strict-aliasing
++c++OPT += -fstrict-aliasing
++#c++OPT += -fno-strict-aliasing
++
++##unroll-loops
++c++OPT     += -funroll-loops
++#c++OPT     += -fno-unroll-loops
++
++##vectorize
++c++OPT     += -fvectorize
++#c++OPT     += -fno-vectorize
++
++##denormal
++#c++OPT     += -fdenormal-fp-math=ieee
++c++OPT     += -fdenormal-fp-math=preserve-sign
++#c++OPT     += -fdenormal-fp-math=positive-zero
++
++
++#--------------------------------------------------
++
++
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Prof DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Prof
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Prof	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/c++Prof	2020-12-18 00:10:30.000000000 +0900
+@@ -0,0 +1,2 @@
++c++DBUG     = -pg
++c++OPT      = -O2
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/cDebug DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/cDebug
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/cDebug	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/cDebug	2020-12-18 00:10:30.000000000 +0900
+@@ -0,0 +1,2 @@
++cDBUG       = -ggdb -DFULLDEBUG
++cOPT        = -O1 -fdefault-inline -finline-functions
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/cOpt DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/cOpt
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/cOpt	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/cOpt	2020-12-18 00:10:30.000000000 +0900
+@@ -0,0 +1,113 @@
++cDBUG     =
++#cOPT      = -O3 -Xg -D__INTEL_COMPILER
++cOPT      = -Nclang 
++
++
++#cOPT     += -O0
++#cOPT     += -O1
++#cOPT     += -O2
++cOPT     += -O3
++
++#cOPT     += -march=armv8.3-a+nosve
++cOPT     += -march=armv8.3-a+sve
++
++#--------------------------------------------------
++
++##fj-eval-concurrent / with -ffast-math
++cOPT     += -ffj-eval-concurrent -ffast-math
++#cOPT     += -ffj-no-eval-concurrent
++
++##fj-fast-matmul
++#cOPT += -ffj-fast-matmul
++cOPT += -ffj-no-fast-matmul
++
++##fj-fp-relaxed
++cOPT += -ffj-fp-relaxed
++#cOPT += -ffj-no-fp-relaxed
++
++##fj-hpctag
++cOPT += -ffj-hpctag
++#cOPT += -ffj-no-hpctag
++
++##fj-ilfunc / with -fbuiltin
++#cOPT     += -ffj-no-ilfunc
++cOPT     += -ffj-ilfunc=loop -fbuiltin
++#cOPT     += -ffj-ilfunc=procedure -fbuiltin
++
++##fj-loop-interchange
++#cOPT += -ffj-loop-interchange
++cOPT += -ffj-no-loop-interchange
++
++##fj-optlib-string
++#cOPT += -ffj-optlib-string
++cOPT += -ffj-no-optlib-string
++
++##fj-preex
++#cOPT     += -ffj-preex
++cOPT     += -ffj-no-preex
++
++##builtin
++#cOPT     += -fbuiltin
++#cOPT     += -fno-builtin
++
++##fast-math
++#cOPT     += -ffast-math
++#cOPT     += -fno-fast-math
++
++##finite-math-only
++#cOPT     += -ffinite-math-only
++cOPT     += -fno-finite-math-only
++
++##fp-contract
++#cOPT     += -ffp-contract=fast
++cOPT     += -ffp-contract=on
++#cOPT     += -ffp-contract=off
++
++##inline-functions
++cOPT     += -finline-functions
++#cOPT     += -fno-inline-functions
++
++##lto
++#cOPT     += -flto
++cOPT     += -fno-lto
++
++##omit-frame-pointer
++#cOPT     += -fomit-frame-pointer
++cOPT     += -fno-omit-frame-pointer
++
++##openmp
++#cOPT += -fopenmp
++cOPT += -fno-openmp
++
++##openmp-simd
++#cOPT += -fopenmp-simd
++cOPT += -fno-openmp-simd
++
++##reroll-loops
++#cOPT     += -freroll-loops
++cOPT     += -fno-reroll-loops
++
++##slp-vectorize
++cOPT += -fslp-vectorize
++#cOPT += -fno-slp-vectorize
++
++##strict-aliasing
++cOPT += -fstrict-aliasing
++#cOPT += -fno-strict-aliasing
++
++##unroll-loops
++cOPT     += -funroll-loops
++#cOPT     += -fno-unroll-loops
++
++##vectorize
++cOPT     += -fvectorize
++#cOPT     += -fno-vectorize
++
++##denormal
++#cOPT     += -fdenormal-fp-math=ieee
++#cOPT     += -fdenormal-fp-math=preserve-sign
++cOPT     += -fdenormal-fp-math=positive-zero
++
++
++#--------------------------------------------------
++
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/cProf DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/cProf
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/cProf	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/cProf	2020-12-18 00:10:30.000000000 +0900
+@@ -0,0 +1,2 @@
++cDBUG       = -pg
++cOPT        = -O2
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/general DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/general
+--- SRC/OpenFOAM-v1812/wmake/rules/linux64Fcc/general	1970-01-01 09:00:00.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/linux64Fcc/general	2020-12-18 01:08:34.000000000 +0900
+@@ -0,0 +1,10 @@
++CPP         = cpp -traditional-cpp $(GFLAGS)
++LD          = /opt/FJSVxos/devkit/aarch64/bin/aarch64-linux-gnu-ld
++
++PROJECT_LIBS = -l$(WM_PROJECT) -ldl
++
++include $(GENERAL_RULES)/standard
++#include $(GENERAL_RULES)/Gcc/openmp
++
++include $(DEFAULT_RULES)/c
++include $(DEFAULT_RULES)/c++
+diff -uprN SRC/OpenFOAM-v1812/wmake/scripts/have_cgal DST/OpenFOAM-v1812/wmake/scripts/have_cgal
+--- SRC/OpenFOAM-v1812/wmake/scripts/have_cgal	2018-12-21 01:13:35.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/scripts/have_cgal	2020-12-18 01:24:35.000000000 +0900
+@@ -72,18 +72,33 @@ have_cgal()
+ 
+     if hasAbsdir "$CGAL_ARCH_PATH"
+     then
+-        header=$(findFirstFile $CGAL_ARCH_PATH/include/$header)
++        header=$(findFirstFile \
++            ${WM_THIRD_PARTY_DIR}/CGAL-4.9.1/include/$header \
++            /opt/FJSVxos/devkit/aarch64/rfs/usr/include/$header \
++            $CGAL_ARCH_PATH/include/$header)
+ 
+         library=$(findFirstFile \
++            /opt/FJSVxos/devkit/aarch64/rfs/usr/lib/$library \
++            /opt/FJSVxos/devkit/aarch64/rfs/usr/lib$WM_COMPILER_LIB_ARCH/$library \
+             "$(thirdExtLib $library)" \
+             $CGAL_ARCH_PATH/lib/$library \
+             $CGAL_ARCH_PATH/lib$WM_COMPILER_LIB_ARCH/$library \
+         )
+     elif isSystem "$CGAL_ARCH_PATH"
+     then
+-        header=$(findFirstFile /usr/local/include/$header /usr/include/$header)
++        header=$(findFirstFile \
++            ${WM_THIRD_PARTY_DIR}/CGAL-4.9.1/include/$header \
++            /opt/FJSVxos/devkit/aarch64/rfs/usr/include/$header \
++            /usr/local/include/$header /usr/include/$header)
+ 
+         case "$header" in
++        /opt/FJSVxos/devkit/aarch64/rfs/usr/*)
++            library=$(findFirstFile \
++                /opt/FJSVxos/devkit/aarch64/rfs/usr/lib/$library \
++                /opt/FJSVxos/devkit/aarch64/rfs/usr/lib$WM_COMPILER_LIB_ARCH/$library \
++        )
++        ;;
++
+         /usr/local/*)
+             library=$(findFirstFile \
+                 /usr/local/lib/$library \
+diff -uprN SRC/OpenFOAM-v1812/wmake/scripts/have_readline DST/OpenFOAM-v1812/wmake/scripts/have_readline
+--- SRC/OpenFOAM-v1812/wmake/scripts/have_readline	2018-12-21 01:13:35.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/scripts/have_readline	2020-12-18 01:16:32.000000000 +0900
+@@ -61,9 +61,16 @@ have_readline()
+     library="libreadline$extLibso"
+ 
+     # System only?
+-    header=$(findFirstFile /usr/local/include/$header /usr/include/$header)
++    header=$(findFirstFile /opt/FJSVxos/devkit/aarch64/rfs/usr/include/$header /usr/local/include/$header /usr/include/$header)
+ 
+     case "$header" in
++    /opt/FJSVxos/devkit/aarch64/rfs/usr/*)
++        library=$(findFirstFile \
++            /opt/FJSVxos/devkit/aarch64/rfs/usr/lib/$library \
++            /opt/FJSVxos/devkit/aarch64/rfs/usr/lib$WM_COMPILER_LIB_ARCH/$library \
++        )
++        ;;
++
+     /usr/local/*)
+         library=$(findFirstFile \
+             /usr/local/lib/$library \
+diff -uprN SRC/OpenFOAM-v1812/wmake/rules/General/CGAL DST/OpenFOAM-v1812/wmake/rules/General/CGAL
+--- SRC/OpenFOAM-v1812/wmake/rules/General/CGAL	2018-12-21 01:13:35.000000000 +0900
++++ DST/OpenFOAM-v1812/wmake/rules/General/CGAL	2020-12-19 00:28:23.000000000 +0900
+@@ -2,9 +2,7 @@ CGAL_INC = \
+     -I$(GMP_ARCH_PATH)/include \
+     -I$(MPFR_ARCH_PATH)/include \
+     -I$(BOOST_ARCH_PATH)/include \
+-    -I$(CGAL_ARCH_PATH)/include \
+-    -I/usr/local/include \
+-    -I/usr/include
++    -I$(CGAL_ARCH_PATH)/include
+ 
+ CGAL_LIBS = \
+     -L$(GMP_ARCH_PATH)/lib$(WM_COMPILER_LIB_ARCH) \

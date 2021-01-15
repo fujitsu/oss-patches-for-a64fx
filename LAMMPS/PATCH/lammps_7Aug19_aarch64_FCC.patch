@@ -1,0 +1,389 @@
+diff -Naur src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3 src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3
+--- src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	1970-01-01 09:00:00.000000000 +0900
++++ src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	2021-02-04 16:24:00.000000000 +0900
+@@ -0,0 +1,128 @@
++# g++_openmpi = OpenMPI with compiler set to GNU g++
++
++SHELL = /bin/sh
++
++# ---------------------------------------------------------------------
++# compiler/linker settings
++# specify flags and libraries needed for your compiler
++
++#export OMPI_CXX = g++
++CC =		mpiFCCpx
++BASEFLAGS =	-g -Nclang -Nlibomp \
++                -march=armv8-a+sve -mcpu=a64fx -mtune=a64fx   \
++                -Ofast -fvectorize -ffj-ocl -fstrict-aliasing \
++                -fsigned-char -ffj-optlib-string \
++                -Koptmsg=2 -ffj-lst=t -ffj-src
++CCFLAGS = $(BASEFLAGS) -fopenmp
++SHFLAGS =	-fPIC
++DEPFLAGS =	-M
++
++LINK =		mpiFCCpx
++LINKFLAGS =	-g -Nclang -Nlibomp -O3 -fopenmp -ffj-fjprof
++LIB = 
++SIZE =		size
++
++ARCHIVE =	ar
++ARFLAGS =	-rc
++SHLIBFLAGS =	-shared
++
++pair_gran_hooke_history_omp.o: CCFLAGS += -ffj-no-fp-relaxed
++
++# ---------------------------------------------------------------------
++# LAMMPS-specific settings, all OPTIONAL
++# specify settings for LAMMPS features you will use
++# if you change any -D setting, do full re-compile after "make clean"
++
++# LAMMPS ifdef settings
++# see possible settings in Section 2.2 (step 4) of manual
++
++LMP_INC =	-DLAMMPS_GZIP
++
++# MPI library
++# see discussion in Section 2.2 (step 5) of manual
++# MPI wrapper compiler/linker can provide this info
++# can point to dummy MPI library in src/STUBS as in Makefile.serial
++# use -D MPICH and OMPI settings in INC to avoid C++ lib conflicts
++# INC = path for mpi.h, MPI compiler settings
++# PATH = path for MPI library
++# LIB = name of MPI library
++
++MPI_INC =       -DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX=1
++MPI_PATH = 
++MPI_LIB =	
++
++# FFT library
++# see discussion in Section 2.2 (step 6) of manaul
++# can be left blank to use provided KISS FFT library
++# INC = -DFFT setting, e.g. -DFFT_FFTW, FFT compiler settings
++# PATH = path for FFT library
++# LIB = name of FFT library
++
++FFT_INC =    	
++FFT_PATH = 
++FFT_LIB =	
++
++# JPEG and/or PNG library
++# see discussion in Section 2.2 (step 7) of manual
++# only needed if -DLAMMPS_JPEG or -DLAMMPS_PNG listed with LMP_INC
++# INC = path(s) for jpeglib.h and/or png.h
++# PATH = path(s) for JPEG library and/or PNG library
++# LIB = name(s) of JPEG library and/or PNG library
++
++JPG_INC =       
++JPG_PATH = 	
++JPG_LIB =	
++
++# ---------------------------------------------------------------------
++# build rules and dependencies
++# do not edit this section
++
++include	Makefile.package.settings
++include	Makefile.package
++
++EXTRA_INC = $(LMP_INC) $(PKG_INC) $(MPI_INC) $(FFT_INC) $(JPG_INC) $(PKG_SYSINC)
++EXTRA_PATH = $(PKG_PATH) $(MPI_PATH) $(FFT_PATH) $(JPG_PATH) $(PKG_SYSPATH)
++EXTRA_LIB = $(PKG_LIB) $(MPI_LIB) $(FFT_LIB) $(JPG_LIB) $(PKG_SYSLIB)
++EXTRA_CPP_DEPENDS = $(PKG_CPP_DEPENDS)
++EXTRA_LINK_DEPENDS = $(PKG_LINK_DEPENDS)
++
++# Path to src files
++
++vpath %.cpp ..
++vpath %.h ..
++
++# Link target
++
++$(EXE):	$(OBJ) $(EXTRA_LINK_DEPENDS)
++	$(LINK) $(LINKFLAGS) $(EXTRA_PATH) $(OBJ) $(EXTRA_LIB) $(LIB) -o $(EXE)
++	$(SIZE) $(EXE)
++
++# Library targets
++
++lib:	$(OBJ) $(EXTRA_LINK_DEPENDS)
++	$(ARCHIVE) $(ARFLAGS) $(EXE) $(OBJ)
++
++shlib:	$(OBJ) $(EXTRA_LINK_DEPENDS)
++	$(CC) $(CCFLAGS) $(SHFLAGS) $(SHLIBFLAGS) $(EXTRA_PATH) -o $(EXE) \
++        $(OBJ) $(EXTRA_LIB) $(LIB)
++
++# Compilation rules
++
++%.o:%.cpp $(EXTRA_CPP_DEPENDS)
++	$(CC) $(CCFLAGS) $(SHFLAGS) $(EXTRA_INC) -c $<
++
++%.d:%.cpp $(EXTRA_CPP_DEPENDS)
++	$(CC) $(CCFLAGS) $(EXTRA_INC) $(DEPFLAGS) $< > $@
++
++%.o:%.cu $(EXTRA_CPP_DEPENDS)
++	$(CC) $(CCFLAGS) $(SHFLAGS) $(EXTRA_INC) -c $<
++
++# Individual dependencies
++
++depend : fastdep.exe $(SRC)
++	@./fastdep.exe $(EXTRA_INC) -- $^ > .depend || exit 1
++
++fastdep.exe: ../DEPEND/fastdep.c
++	cc -O -o $@ $<
++
++sinclude .depend
+diff -Naur src-00orig/compile.sh src/compile.sh
+--- src-00orig/compile.sh	1970-01-01 09:00:00.000000000 +0900
++++ src/compile.sh	2021-02-04 17:39:22.000000000 +0900
+@@ -0,0 +1,12 @@
++#!/bin/bash -x
++
++export LANG=C
++
++LANG_HOME=/opt/FJSVxtclanga/tcsds-1.2.27a
++export OPAL_PREFIX=${LANG_HOME}
++export PATH=${LANG_HOME}/bin:$PATH
++export LD_LIBRARY_PATH=${LANG_HOME}/lib64:$LD_LIBRARY_PATH
++
++make -j4 fj_fjmpi_clang_O3
++
++exit
+diff -Naur src-00orig/fix_nve_sphere_omp.cpp src/fix_nve_sphere_omp.cpp
+--- src-00orig/fix_nve_sphere_omp.cpp	2021-02-04 17:34:20.000000000 +0900
++++ src/fix_nve_sphere_omp.cpp	2021-02-04 17:14:41.000000000 +0900
+@@ -33,17 +33,28 @@
+ 
+ void FixNVESphereOMP::initial_integrate(int /* vflag */)
+ {
++// Fujitsu 2021/02/04 Mod >>
+   double * const * const x = atom->x;
++  double * _noalias const x_fj = atom->x[0];
+   double * const * const v = atom->v;
++  double * _noalias const v_fj = atom->v[0];
+   const double * const * const f = atom->f;
++  const double * _noalias const f_fj = atom->f[0];
+   double * const * const omega = atom->omega;
++  double * const _noalias omega_fj = atom->omega[0];
++// Fujitsu 2021/02/04 Mod <<
+   const double * const * const torque = atom->torque;
++  const double * const torque_fj = atom->torque[0];
+   const double * const radius = atom->radius;
+   const double * const rmass = atom->rmass;
+   const int * const mask = atom->mask;
+   const int nlocal = (igroup == atom->firstgroup) ? atom->nfirst : atom->nlocal;
+   int i;
+ 
++// Fujitsu 2021/02/04 Add >>
++  const int nlocal_3 = nlocal * 3;
++// Fujitsu 2021/02/04 Add <<
++
+   // set timestep here since dt may have changed or come via rRESPA
+   const double dtfrotate = dtf / INERTIA;
+ 
+@@ -52,20 +63,27 @@
+ #if defined(_OPENMP)
+ #pragma omp parallel for private(i) default(none)
+ #endif
+-  for (i = 0; i < nlocal; i++) {
+-    if (mask[i] & groupbit) {
+-      const double dtfm = dtf / rmass[i];
+-      v[i][0] += dtfm * f[i][0];
+-      v[i][1] += dtfm * f[i][1];
+-      v[i][2] += dtfm * f[i][2];
+-      x[i][0] += dtv * v[i][0];
+-      x[i][1] += dtv * v[i][1];
+-      x[i][2] += dtv * v[i][2];
+-
+-      const double dtirotate = dtfrotate / (radius[i]*radius[i]*rmass[i]);
+-      omega[i][0] += dtirotate * torque[i][0];
+-      omega[i][1] += dtirotate * torque[i][1];
+-      omega[i][2] += dtirotate * torque[i][2];
++//  for (i = 0; i < nlocal; i++) {
++// Fujitsu 2021/02/04 Mod >>
++#pragma clang loop vectorize(assume_safety)
++  for (i = 0; i < nlocal_3; i++) {
++    if (mask[i/3] & groupbit) {
++      const double dtfm = dtf / rmass[i/3];
++      v_fj[i] += dtfm * f_fj[i];
++//      v[i][0] += dtfm * f[i][0];
++//      v[i][1] += dtfm * f[i][1];
++//      v[i][2] += dtfm * f[i][2];
++      x_fj[i] += dtv * v_fj[i];
++//      x[i][0] += dtv * v[i][0];
++//      x[i][1] += dtv * v[i][1];
++//      x[i][2] += dtv * v[i][2];
++//
++      const double dtirotate = dtfrotate / (radius[i/3]*radius[i/3]*rmass[i/3]);
++      omega_fj[i] += dtirotate * torque_fj[i];
++//      omega[i][0] += dtirotate * torque[i][0];
++//      omega[i][1] += dtirotate * torque[i][1];
++//      omega[i][2] += dtirotate * torque[i][2];
++// Fujitsu 2021/02/04 Mod <<
+     }
+   }
+ 
+@@ -207,16 +225,26 @@
+ 
+ void FixNVESphereOMP::final_integrate()
+ {
++// Fujitsu 2021/02/04 Mod >>
+   double * const * const v = atom->v;
++  double * const v_fj = atom->v[0];
+   const double * const * const f = atom->f;
++  const double * const f_fj = atom->f[0];
+   double * const * const omega = atom->omega;
++  double * const omega_fj = atom->omega[0];
+   const double * const * const torque = atom->torque;
++  const double * const torque_fj = atom->torque[0];
++// Fujitsu 2021/02/04 Mod <<
+   const double * const rmass = atom->rmass;
+   const double * const radius = atom->radius;
+   const int * const mask = atom->mask;
+   const int nlocal = (igroup == atom->firstgroup) ? atom->nfirst : atom->nlocal;
+   int i;
+ 
++// Fujitsu 2021/02/04 Add >>
++  const int nlocal_3 = nlocal * 3;
++// Fujitsu 2021/02/04 Add <<
++
+   // set timestep here since dt may have changed or come via rRESPA
+ 
+   const double dtfrotate = dtf / INERTIA;
+@@ -227,16 +255,22 @@
+ #if defined(_OPENMP)
+ #pragma omp parallel for private(i) default(none)
+ #endif
+-  for (i = 0; i < nlocal; i++)
+-    if (mask[i] & groupbit) {
+-      const double dtfm = dtf / rmass[i];
+-      v[i][0] += dtfm * f[i][0];
+-      v[i][1] += dtfm * f[i][1];
+-      v[i][2] += dtfm * f[i][2];
+-
+-      const double dtirotate = dtfrotate / (radius[i]*radius[i]*rmass[i]);
+-      omega[i][0] += dtirotate * torque[i][0];
+-      omega[i][1] += dtirotate * torque[i][1];
+-      omega[i][2] += dtirotate * torque[i][2];
++  //for (i = 0; i < nlocal; i++)
++// Fujitsu 2021/02/04 Mod >>
++#pragma clang loop vectorize(assume_safety) vectorize_width(4)
++  for (i = 0; i < nlocal_3; i++)
++    if (mask[i/3] & groupbit) {
++      const double dtfm = dtf / rmass[i/3];
++      v_fj[i] += dtfm * f_fj[i];
++      //v[i][0] += dtfm * f[i][0];
++      //v[i][1] += dtfm * f[i][1];
++      //v[i][2] += dtfm * f[i][2];
++
++      const double dtirotate = dtfrotate / (radius[i/3]*radius[i/3]*rmass[i/3]);
++      omega_fj[i] += dtirotate * torque_fj[i];
++      //omega[i][0] += dtirotate * torque[i][0];
++      //omega[i][1] += dtirotate * torque[i][1];
++      //omega[i][2] += dtirotate * torque[i][2];
++// Fujitsu 2021/02/04 Mod <<
+     }
+ }
+diff -Naur src-00orig/memory.cpp src/memory.cpp
+--- src-00orig/memory.cpp	2019-08-07 07:01:57.000000000 +0900
++++ src/memory.cpp	2021-02-04 16:47:31.000000000 +0900
+@@ -28,6 +28,16 @@
+ #define LAMMPS_MEMALIGN 64
+ #endif
+ 
++// Fujitsu 2021/02/04 ADD >>
++#define A64FX_TUNE_4_MEM_ALIGN   256
++#ifdef A64FX_TUNE_4_MEM_ALIGN
++#define LAMMPS_MEMALIGN     A64FX_TUNE_4_MEM_ALIGN
++#include <malloc.h>
++#include <string.h>
++#endif
++// Fujitsu 2021/02/04 ADD <<
++
++
+ using namespace LAMMPS_NS;
+ 
+ /* ---------------------------------------------------------------------- */
+@@ -76,9 +86,11 @@
+   }
+ 
+ #if defined(LMP_USE_TBB_ALLOCATOR)
+-  ptr = scalable_aligned_realloc(ptr, nbytes, LAMMPS_MEMALIGN);
++  ptr = scalable_alignedo_realloc(ptr, nbytes, LAMMPS_MEMALIGN);
++// Fujitsu 2021/02/04 MOD >>
+ #elif defined(LMP_INTEL_NO_TBB) && defined(LAMMPS_MEMALIGN) && \
+-      defined(__INTEL_COMPILER)
++      defined(__INTEL_COMPILER) || defined(A64FX_TUNE_4_MEM_ALIGN)
++// Fujitsu 2021/02/04 MOD <<
+ 
+   ptr = realloc(ptr, nbytes);
+   uintptr_t offset = ((uintptr_t)(const void *)(ptr)) % LAMMPS_MEMALIGN;
+diff -Naur src-00orig/pair_gran_hooke_history_omp.cpp src/pair_gran_hooke_history_omp.cpp
+--- src-00orig/pair_gran_hooke_history_omp.cpp	2021-02-04 17:34:21.000000000 +0900
++++ src/pair_gran_hooke_history_omp.cpp	2021-02-04 16:53:36.000000000 +0900
+@@ -143,6 +143,9 @@
+   for (ii = iifrom; ii < iito; ++ii) {
+ 
+     i = ilist[ii];
++// Fujitsu 2021/02/04 Add >>
++    __builtin_prefetch(&ilist[ii+4],0,3);
++// Fujitsu 2021/02/04 Add <<
+     xtmp = x[i][0];
+     ytmp = x[i][1];
+     ztmp = x[i][2];
+@@ -174,6 +177,10 @@
+         myshear[2] = 0.0;
+ 
+       } else {
++// Fujitsu 2021/02/04 Add >>
++        __builtin_prefetch(&f[j][0],1,3);
++        __builtin_prefetch(&torque[j][0],1,3);
++// Fujitsu 2021/02/04 Add <<
+         r = sqrt(rsq);
+         rinv = 1.0/r;
+         rsqinv = 1.0/rsq;
+@@ -283,16 +290,20 @@
+         fx = delx*ccel + fs1;
+         fy = dely*ccel + fs2;
+         fz = delz*ccel + fs3;
+-        fxtmp  += fx;
+-        fytmp  += fy;
+-        fztmp  += fz;
++// Fujitsu 2021/02/04 Mod >>
++        f[i][0]  += fx;
++        f[i][1]  += fy;
++        f[i][2]  += fz;
++// Fujitsu 2021/02/04 Mod <<
+ 
+         tor1 = rinv * (dely*fs3 - delz*fs2);
+         tor2 = rinv * (delz*fs1 - delx*fs3);
+         tor3 = rinv * (delx*fs2 - dely*fs1);
+-        t1tmp -= radi*tor1;
+-        t2tmp -= radi*tor2;
+-        t3tmp -= radi*tor3;
++// Fujitsu 2021/02/04 Mod >>
++        torque[i][0] -= radi*tor1;
++        torque[i][1] -= radi*tor2;
++        torque[i][2] -= radi*tor3;
++// Fujitsu 2021/02/04 Mod <<
+ 
+         if (NEWTON_PAIR || j < nlocal) {
+           f[j][0] -= fx;
+@@ -309,12 +320,14 @@
+       }
+       memcpy(allshear + 3*jj, myshear, 3*sizeof(double));
+     }
+-    f[i][0] += fxtmp;
+-    f[i][1] += fytmp;
+-    f[i][2] += fztmp;
+-    torque[i][0] += t1tmp;
+-    torque[i][1] += t2tmp;
+-    torque[i][2] += t3tmp;
++// Fujitsu 2021/02/04 Mod >>
++    //f[i][0] += fxtmp;
++    //f[i][1] += fytmp;
++    //f[i][2] += fztmp;
++    //torque[i][0] += t1tmp;
++    //torque[i][1] += t2tmp;
++    //torque[i][2] += t3tmp;
++// Fujitsu 2021/02/04 Mod <<
+   }
+ }
+ 

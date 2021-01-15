@@ -1,0 +1,83 @@
+diff -Naur jw_baroclinic_wave/namelist.atmosphere jw_baroclinic_wave_6.2/namelist.atmosphere
+--- jw_baroclinic_wave/namelist.atmosphere	2019-06-09 07:39:44.000000000 +0900
++++ jw_baroclinic_wave_6.2/namelist.atmosphere	2015-05-22 02:10:07.000000000 +0900
+@@ -32,15 +32,6 @@
+     config_xnutr = 0.0
+ /
+ 
+-&limited_area
+-    config_apply_lbcs = false
+-/
+-
+-&io
+-    config_pio_num_iotasks = 0
+-    config_pio_stride = 1
+-/
+-
+ &decomposition
+     config_block_decomp_file_prefix = 'x1.40962.graph.info.part.'
+ /
+@@ -55,7 +46,6 @@
+ /
+ 
+ &physics
+-    config_o3climatology = false
+     config_sst_update = false
+     config_sstdiurn_update = false
+     config_deepsoiltemp_update = false
+diff -Naur jw_baroclinic_wave/streams.atmosphere jw_baroclinic_wave_6.2/streams.atmosphere
+--- jw_baroclinic_wave/streams.atmosphere	2019-06-09 07:40:14.000000000 +0900
++++ jw_baroclinic_wave_6.2/streams.atmosphere	2015-05-22 02:10:11.000000000 +0900
+@@ -21,12 +21,6 @@
+ 
+ </stream>
+ 
+-<stream name="diagnostics"
+-        type="output"
+-        filename_template="diag.$Y-$M-$D_$h.$m.$s.nc"
+-        output_interval="none" >
+-
+-</stream>
+ 
+ <stream name="surface"
+         type="input"
+@@ -36,18 +30,4 @@
+ 
+ </stream>
+ 
+-<immutable_stream name="iau"
+-                  type="input"
+-                  filename_template="AmB.$Y-$M-$D_$h.$m.$s.nc"
+-                  filename_interval="none"
+-                  packages="iau"
+-                  input_interval="initial_only" />
+-
+-<immutable_stream name="lbc_in"
+-                  type="input"
+-                  filename_template="lbc.$Y-$M-$D_$h.$m.$s.nc"
+-                  filename_interval="input_interval"
+-                  packages="limited_area"
+-                  input_interval="none" />
+-
+ </streams>
+diff -Naur jw_baroclinic_wave/streams.init_atmosphere jw_baroclinic_wave_6.2/streams.init_atmosphere
+--- jw_baroclinic_wave/streams.init_atmosphere	2019-06-09 07:39:16.000000000 +0900
++++ jw_baroclinic_wave_6.2/streams.init_atmosphere	2015-05-19 09:53:35.000000000 +0900
+@@ -12,16 +12,9 @@
+ 
+ <immutable_stream name="surface"
+                   type="output"
+-                  filename_template="sfc_not_needed_for_jw"
++                  filename_template="not_needed_for_jw"
+                   filename_interval="none"
+                   packages="sfc_update"
+                   output_interval="86400" />
+ 
+-<immutable_stream name="lbc"
+-                  type="output"
+-                  filename_template="lbc_not_needed_for_jw"
+-                  filename_interval="output_interval"
+-                  packages="lbcs"
+-                  output_interval="none" />
+-
+ </streams>
