@@ -12,3 +12,6 @@ Please refer to the directory of each application for details.
 - Quantum Espresso
 - SPECFEM3D
 
+Additionaly, you can easily build various applications with spack. See "Spack" directory for more information.
+Note that tuning for speed on A64FX is not included in spack.
+
