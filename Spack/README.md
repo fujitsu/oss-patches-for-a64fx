@@ -20,10 +20,10 @@ With Spack, following apprications and their dependencies can be easily built on
 git clone https://github.com/spack/spack.git
 . spack/share/spack/setup-env.sh
 ```
-If you use Fujitsu Compiler and MPI, edit compilers.yaml and packages.yaml in ~/.spack. See "Examples" section for detail.
-
+In order to use FUJITSU Software Compiler Package or Fujitsu Development Studio, edit compilers.yaml and packages.yaml in ~/.spack. See "Examples" section for detail.
 
 2. Install applications
+Specify "%fj" to use fcc, FCC and frt.
 ```
 spack install [appname]@[version] %fj
 ```
@@ -35,9 +35,13 @@ mpiexec -np [n_processes] [app_module]
 ```
 
 ## Notes
-### zlib issue on FX700
-If zlib is included in dependencies and built in clang mode, mpiexec may cause error on FX700. 
-This is because Spack sets LD_LIBRARY_PATH to user-built zlib and makes mpiexec linked with it, while mpiexec of Fujitsu MPI must be linked with system zlib. 
+### zlib issue of FUJITSU Software Compiler Package or Fujitsu Development Studio
+If zlib is included in dependencies and built with FCC or FCCpx in clang mode, mpiexec may cause a memory error like the following:
+```
+Segments would overlap
+** Error in free(): invalid next size (normal): 0x000040000140052e0
+```
+For example, FrontISTR, OpenFOAM, MPAS and LAMMPS depend on zlib. 
 To avoid this error, please unload zlib or load package with --only package option as follows:
 ```
 spack load [appname]
@@ -47,7 +51,7 @@ or
 ```
 spack load --only package [appname]
 ```
-We are now requesting a countermeasure to this issue with Fujitsu MPI team.
+This is because Spack sets LD_LIBRARY_PATH to user-built zlib and makes mpiexec linked with it, while mpiexec of FUJITSU Software Compiler Package or Fujitsu Development Studio must be linked with system zlib.
 
 ## Examples
 
