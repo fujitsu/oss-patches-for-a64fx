@@ -16,8 +16,8 @@ The followings are build procedure by Fujitsu native compiler.
 ### Requirements
 
 - FUJITSU Software Compiler Package or Fujitsu Development Studio
-- SPECFEM3D GLOBE v7.0.2 source
-  - https://github.com/geodynamics/specfem3d_globe
+- SPECFEM3D GLOBE v7.0.2 source: specfem3d_globe-7.0.2.tar.gz
+  - https://github.com/geodynamics/specfem3d_globe/archive/refs/tags/v7.0.2.tar.gz
 
 - Input files
   - TestCaseC in PRACE Benchmark suite
@@ -26,11 +26,11 @@ The followings are build procedure by Fujitsu native compiler.
 ### Build procedure by native compiler
 
 ```
-  $ unzip specfem3d_globe-master.zip
-  $ cd specfem3d_globe-master
-  $ patch -p1 -i (somewhere)/specfem3d_globe-master-01tune.patch
+  $ tar xzvf specfem3d_globe-7.0.2.tar.gz
+  $ cd specfem3d_globe-7.0.2
+  $ patch -p1 -i -R (somewhere)/specfem3d_v7.0.2_AArch64_frt_tune.patch
   $ cd ..
-  $ mv specfem3d_globe-master specfem3d_globe
+  $ mv specfem3d_globe-7.0.2 specfem3d_globe
   $ cd ${your_work_directory}
   $ cp -p (somewhere)/ueabs-master.tar.gz
   $ tar zxvf ueabs-master.tar.gz

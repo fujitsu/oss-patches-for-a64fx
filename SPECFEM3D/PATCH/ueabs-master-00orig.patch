@@ -129,5 +129,5 @@ diff -Naur ueabs-master-00orig/specfem3d/env/env_a64fx ueabs-master/specfem3d/en
 +export CC="mpifcc"
 +export FC="mpifrt"
 +export MPIFC=$FC
-+export FCFLAGS="-Kfast,openmp,loop_nofission -Kcmodel=large -Koptmsg=2 -Nlst=t -DUSE_FP32 -DOPT_STREAMS -DFORCE_VECTORIZATION"
++export FCFLAGS="-Kfast,openmp,loop_nofission -Kcmodel=large -Koptmsg=2 -Nlst=t -DUSE_FP32 -DOPT_STREAMS -DFORCE_VECTORIZATION -Knoarray_declaration_opt"
 +export CFLAGS="-Kfast,openmp,loop_nofission -Kcmodel=large  -Koptmsg=2 -Nlst"
