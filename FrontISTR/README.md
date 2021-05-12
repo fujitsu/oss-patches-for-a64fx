@@ -84,9 +84,10 @@ cd FrontISTR-v5.0
 
 4-2. Apply tuning patch (optional)
 
-If you try Fujitsu tuned FrontISTR, apply "tune.patch" to FrontISTR source code.
+If you try Fujitsu tuned FrontISTR, apply patches to FrontISTR source code.
 ```
 patch -p1 < ../tune.patch
+patch -p1 < ../tune2.patch
 ```
 
 4-3. Build FrontISTR
