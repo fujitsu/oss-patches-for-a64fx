@@ -18,7 +18,9 @@ The followings are build procedure by Fujitsu cross compiler.
 
 - FUJITSU Software Compiler Package or Fujitsu Development Studio
 - MPAS Atmosphere version 6.2 source
-  - https://lammps.sandia.gov/tars/
+  - https://github.com/MPAS-Dev/MPAS-Model/releases
+- MPAS-Data-master.zip
+  - https://github.com/MPAS-Dev/MPAS-Data
 - NetCDF C version 4.3.3 or later
   - https://www.unidata.ucar.edu/downloads/netcdf/
 - NetCDF Fortran version 4.3.3 or later
