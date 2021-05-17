@@ -45,8 +45,8 @@ diff -uprN MPAS-Model-6.2/Makefile MPAS-Model-6.2_mod/Makefile
 +	"CFLAGS_DEBUG = -g -traceback" \
 +	"CXXFLAGS_DEBUG = -g -traceback" \
 +	"LDFLAGS_DEBUG = -g -traceback" \
-+	"FFLAGS_OMP = -Kopenmp" \
-+	"CFLAGS_OMP = -Kopenmp" \
++	"FFLAGS_OMP = -Kopenmp -Nfjomplib" \
++	"CFLAGS_OMP = -Kopenmp -Nfjomplib" \
 +	"CORE = $(CORE)" \
 +	"DEBUG = $(DEBUG)" \
 +	"USE_PAPI = $(USE_PAPI)" \
