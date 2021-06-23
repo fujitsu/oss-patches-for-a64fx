@@ -1,0 +1,38 @@
+--- ASIS/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/smoothers/GaussSeidel/GaussSeidelSmoother.C	2018-12-21 01:13:33.000000000 +0900
++++ TUNE/OpenFOAM-v1812/src/OpenFOAM/matrices/lduMatrix/smoothers/GaussSeidel/GaussSeidelSmoother.C	2021-06-23 11:36:57.000000000 +0900
+@@ -135,6 +135,14 @@ void Foam::GaussSeidelSmoother::smooth
+         label fStart;
+         label fEnd = ownStartPtr[0];
+ 
++// Fujitsu 2021/6/14 mod >>>
++        // div Vectorize
++        double diagPtr_inv[nCells];
++        for (label celli=0; celli<nCells; ++celli) {
++            diagPtr_inv[ celli ] = 1.0 / diagPtr[ celli ];
++        }
++// Fujitsu 2021/6/14 mod <<<
++
+         for (label celli=0; celli<nCells; celli++)
+         {
+             // Start and end of this row
+@@ -145,13 +153,19 @@ void Foam::GaussSeidelSmoother::smooth
+             psii = bPrimePtr[celli];
+ 
+             // Accumulate the owner product side
++// Fujitsu 2021/6/14 mod >>>
++            #pragma clang loop vectorize(disable)
++// Fujitsu 2021/6/14 mod <<<
+             for (label facei=fStart; facei<fEnd; facei++)
+             {
+                 psii -= upperPtr[facei]*psiPtr[uPtr[facei]];
+             }
+ 
+             // Finish psi for this cell
+-            psii /= diagPtr[celli];
++// Fujitsu 2021/6/14 mod >>>
++            //psii /= diagPtr[celli];
++            psii *= diagPtr_inv[celli]; // div Vectorize
++// Fujitsu 2021/6/14 mod <<<
+ 
+             // Distribute the neighbour side using psi for this cell
+             for (label facei=fStart; facei<fEnd; facei++)
