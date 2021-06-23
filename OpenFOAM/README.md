@@ -57,6 +57,8 @@ tar -xzvf ThirdParty-v1812.tgz
 patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_DICPreconditioner.C.patch
 patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_DICPreconditioner.H.patch
 patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_lduMatrixATmul.C.patch
+patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_GaussSeidelSmoother.C.patch
+patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_symGaussSeidelSmoother.C.patch
 ```
 #### 3. Apply the patch files for compilation
 ```
@@ -92,6 +94,8 @@ tar -xzvf ThirdParty-v1812.tgz
 patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_DICPreconditioner.C.patch
 patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_DICPreconditioner.H.patch
 patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_lduMatrixATmul.C.patch
+patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_GaussSeidelSmoother.C.patch
+patch -p1 < patch_OpenFOAM-v1812_aarch64_fcc_tune/OpenFOAM-v1812_aarch64_fcc_symGaussSeidelSmoother.C.patch
 ```
 
 #### 3. Apply the patch files for compilation
