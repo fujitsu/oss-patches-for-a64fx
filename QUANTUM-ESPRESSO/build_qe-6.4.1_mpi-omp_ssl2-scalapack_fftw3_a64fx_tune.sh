@@ -10,6 +10,7 @@ BUILD_DIR=${BUILD_HOME}/q-e-qe-${QE_VERSION}
 
 DFLT_LANG_HOME=""
 DFLT_FFTW3_LIB=""
+ELPA_LIB=""
 
 if [ -z "${LANG_HOME}" ]; then
   LANG_HOME=${DFLT_LANG_HOME}
@@ -64,7 +65,7 @@ cd ${BUILD_DIR}
 # build post-configuration
 # -----------------------------------------------------------------------------
 ./configure ARCH=aarch64 \
-  DFLAGS="-D__FFTW3 -D__MPI -D__SCALAPACK -D_OPENMP -I${FFTW3_LIB}/include" \
+  DFLAGS="-D__FFTW3 -D__MPI -D__SCALAPACK -D_OPENMP -I${FFTW3_LIB}/include -D__ELPA -D__ELPA_2016"
   MPIF90="mpifrtpx" F90="frtpx" F77="frtpx" CC="fccpx" \
   FFLAGS="-Kocl -Kregion_extension -Knolargepage -Kfast -Kopenmp -Koptmsg=2 -Nlst=t -I${FFTW3_LIB}/include" \
   F90FLAGS="-Cpp -Kocl -Kregion_extension -Knolargepage -Kfast -Kopenmp -Koptmsg=2 -Nlst=t -I${FFTW3_LIB}/include" \
@@ -73,6 +74,9 @@ cd ${BUILD_DIR}
   LAPACK_LIBS="-SSL2BLAMP" \
   SCALAPACK_LIBS="-SCALAPACK" \
   FFT_LIBS="${FFTW3_LIB}/lib64/libfftw3_omp.a ${FFTW3_LIB}/lib64/libfftw3.a" \
+  --with-elpa-include="${ELPA_LIB}/include/elpa_openmp-2016.11.001.pre/modules" \
+  --with-elpa-lib="${ELPA_LIB}/lib/libelpa_openmp.a" \
+  --with-elpa-version="2016" \
   >> ${logfile} 2>&1
 
 
