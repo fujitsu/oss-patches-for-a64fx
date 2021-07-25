@@ -22,6 +22,8 @@ The followings are build procedure by Fujitsu cross compiler.
   - https://github.com/QEF/q-e/archive/qe-6.4.1.tar.gz
 - FFTW 3.3.8 for AArch64
   - https://github.com/fujitsu/fftw3
+- elpa-2016.11.001.pre
+  - https://github.com/fujitsu/elpa
 - FUJITSU Software Compiler Package or Fujitsu Development Studio
 
 
@@ -31,7 +33,8 @@ The followings are build procedure by Fujitsu cross compiler.
 
 	```
 	export LANG_HOME="Path to the root directory of Fujitsu cross compiler for AArch64"
-	export FFTW3_LIB="Path to the root directory of FFTW 3.3.8 for AArch64"
+	export FFTW3_LIB="Path to the library path of FFTW 3.3.8 for AArch64"
+	export ELPA_LIB="Path to the library path of elpa-2016.11.001.pre"
 	```
 
 2. Build QUANTUM ESPRESSO 6.4.1
@@ -47,7 +50,10 @@ The followings are build procedure by Fujitsu cross compiler.
 		```
 		./build_qe-6.4.1_mpi-omp_ssl2-scalapack_fftw3_a64fx_tune.sh
 		```
-
+## Notes
+In our benchmarks, we have seen a slight speedup when using the sve-dev branch of fftw3.
+- https://github.com/fujitsu/fftw3/tree/sve-dev
+- If you use the sve-dev branch, the fftw3 must be built with the option to specify double precision. See the fujitsu/fftw3 pages for detail.
 
 ## License
 
