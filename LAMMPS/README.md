@@ -115,9 +115,9 @@ You can see the tuning details for CHAIN and LJ in [here](https://www.hpci-offic
   LD="../src/lmp_fj_fjmpi_clang_O3 -sf omp -pk omp ${PARALLEL}"
   IN="-in in.chute.scaled"
   # For CHAIN and LJ test
-  LD="../src/lmp_fj_fjmpi_clang_O3 -sf intel -pk intel 0 omp ${PARALLEL} mode double"
-  IN="-in in.chain.scaled"
-  IN="-in in.lj"
+  #LD="../src/lmp_fj_fjmpi_clang_O3 -sf intel -pk intel 0 omp ${PARALLEL} mode double"
+  #IN="-in in.chain.scaled"
+  #IN="-in in.lj"
 
   mpiexec ${LD} ${ARG}
   ===
