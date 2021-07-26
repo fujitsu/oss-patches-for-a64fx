@@ -1,0 +1,710 @@
+diff -Naur src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3 src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3
+--- src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	1970-01-01 09:00:00.000000000 +0900
++++ src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	2021-07-21 09:25:25.000000000 +0900
+@@ -0,0 +1,128 @@
++# g++_openmpi = OpenMPI with compiler set to GNU g++
++
++SHELL = /bin/sh
++
++# ---------------------------------------------------------------------
++# compiler/linker settings
++# specify flags and libraries needed for your compiler
++
++#export OMPI_CXX = g++
++CC =		mpiFCCpx
++BASEFLAGS =	-g -Nclang -Nlibomp \
++                -march=armv8-a+sve -mcpu=a64fx -mtune=a64fx   \
++                -Ofast -fvectorize -ffj-ocl -fstrict-aliasing \
++                -fsigned-char -ffj-optlib-string \
++                -Koptmsg=2 -ffj-lst=t -ffj-src #-finstrument-functions
++CCFLAGS = $(BASEFLAGS) -fopenmp
++SHFLAGS =	-fPIC
++DEPFLAGS =	-M
++
++LINK =		mpiFCCpx
++LINKFLAGS =	-g -Nclang -Nlibomp -O3 -fopenmp -ffj-fjprof #-fsanitize=undefined -fsanitize=thread
++LIB = 
++SIZE =		size
++
++ARCHIVE =	ar
++ARFLAGS =	-rc
++SHLIBFLAGS =	-shared
++
++pair_lj_cut_intel.o: CCFLAGS = -Kfast,ocl,noopenmp,noopenmp_simd,optlib_string,noomitfp -Nlibomp,src,sta,lst=t -fsigned-char -Koptmsg=2 -std=c++14 -stdlib=libc++
++
++# ---------------------------------------------------------------------
++# LAMMPS-specific settings, all OPTIONAL
++# specify settings for LAMMPS features you will use
++# if you change any -D setting, do full re-compile after "make clean"
++
++# LAMMPS ifdef settings
++# see possible settings in Section 2.2 (step 4) of manual
++
++LMP_INC =	-DLAMMPS_GZIP
++
++# MPI library
++# see discussion in Section 2.2 (step 5) of manual
++# MPI wrapper compiler/linker can provide this info
++# can point to dummy MPI library in src/STUBS as in Makefile.serial
++# use -D MPICH and OMPI settings in INC to avoid C++ lib conflicts
++# INC = path for mpi.h, MPI compiler settings
++# PATH = path for MPI library
++# LIB = name of MPI library
++
++MPI_INC =       -DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX=1
++MPI_PATH = 
++MPI_LIB =	
++
++# FFT library
++# see discussion in Section 2.2 (step 6) of manaul
++# can be left blank to use provided KISS FFT library
++# INC = -DFFT setting, e.g. -DFFT_FFTW, FFT compiler settings
++# PATH = path for FFT library
++# LIB = name of FFT library
++
++FFT_INC =    	
++FFT_PATH = 
++FFT_LIB =	
++
++# JPEG and/or PNG library
++# see discussion in Section 2.2 (step 7) of manual
++# only needed if -DLAMMPS_JPEG or -DLAMMPS_PNG listed with LMP_INC
++# INC = path(s) for jpeglib.h and/or png.h
++# PATH = path(s) for JPEG library and/or PNG library
++# LIB = name(s) of JPEG library and/or PNG library
++
++JPG_INC =       
++JPG_PATH = 	
++JPG_LIB =	
++
++# ---------------------------------------------------------------------
++# build rules and dependencies
++# do not edit this section
++
++include	Makefile.package.settings
++include	Makefile.package
++
++EXTRA_INC = $(LMP_INC) $(PKG_INC) $(MPI_INC) $(FFT_INC) $(JPG_INC) $(PKG_SYSINC)
++EXTRA_PATH = $(PKG_PATH) $(MPI_PATH) $(FFT_PATH) $(JPG_PATH) $(PKG_SYSPATH)
++EXTRA_LIB = $(PKG_LIB) $(MPI_LIB) $(FFT_LIB) $(JPG_LIB) $(PKG_SYSLIB)
++EXTRA_CPP_DEPENDS = $(PKG_CPP_DEPENDS)
++EXTRA_LINK_DEPENDS = $(PKG_LINK_DEPENDS)
++
++# Path to src files
++
++vpath %.cpp ..
++vpath %.h ..
++
++# Link target
++
++$(EXE):	$(OBJ) $(EXTRA_LINK_DEPENDS)
++	$(LINK) $(LINKFLAGS) $(EXTRA_PATH) $(OBJ) $(EXTRA_LIB) $(LIB) -o $(EXE)
++	$(SIZE) $(EXE)
++
++# Library targets
++
++lib:	$(OBJ) $(EXTRA_LINK_DEPENDS)
++	$(ARCHIVE) $(ARFLAGS) $(EXE) $(OBJ)
++
++shlib:	$(OBJ) $(EXTRA_LINK_DEPENDS)
++	$(CC) $(CCFLAGS) $(SHFLAGS) $(SHLIBFLAGS) $(EXTRA_PATH) -o $(EXE) \
++        $(OBJ) $(EXTRA_LIB) $(LIB)
++
++# Compilation rules
++
++%.o:%.cpp $(EXTRA_CPP_DEPENDS)
++	$(CC) $(CCFLAGS) $(SHFLAGS) $(EXTRA_INC) -c $<
++
++%.d:%.cpp $(EXTRA_CPP_DEPENDS)
++	$(CC) $(CCFLAGS) $(EXTRA_INC) $(DEPFLAGS) $< > $@
++
++%.o:%.cu $(EXTRA_CPP_DEPENDS)
++	$(CC) $(CCFLAGS) $(SHFLAGS) $(EXTRA_INC) -c $<
++
++# Individual dependencies
++
++depend : fastdep.exe $(SRC)
++	@./fastdep.exe $(EXTRA_INC) -- $^ > .depend || exit 1
++
++fastdep.exe: ../DEPEND/fastdep.c
++	cc -O -o $@ $<
++
++sinclude .depend
+diff -Naur src-00orig/compile.sh src/compile.sh
+--- src-00orig/compile.sh	1970-01-01 09:00:00.000000000 +0900
++++ src/compile.sh	2021-07-21 11:03:28.000000000 +0900
+@@ -0,0 +1,16 @@
++#!/bin/bash -x
++
++export LANG=C
++
++LANG_HOME=/opt/FJSVxtclanga/tcsds-1.2.31
++export PATH=${LANG_HOME}/bin:$PATH
++export LD_LIBRARY_PATH=${LANG_HOME}/lib64:$LD_LIBRARY_PATH
++
++for style in airebo_intel airebo_morse_intel rebo_intel tersoff_intel
++do
++  rm pair_${style}.cpp pair_${style}.h
++done
++
++time -p make fj_fjmpi_clang_O3
++
++exit
+diff -Naur src-00orig/pair_lj_cut_intel.cpp src/pair_lj_cut_intel.cpp
+--- src-00orig/pair_lj_cut_intel.cpp	2021-07-21 11:01:05.000000000 +0900
++++ src/pair_lj_cut_intel.cpp	2021-07-21 10:06:24.000000000 +0900
+@@ -209,7 +209,538 @@
+         lj4 = lj34[_onetype].lj4;
+         offset = ljc12o[_onetype].offset;
+       }
+-      for (int ii = iifrom; ii < iito; ii += iip) {
++// Fujitsu 2021/07/20 Add >>
++      if (iifrom < iito) {
++          const int prefetch_iterations_L2 = 8;
++          const int prefetch_iterations_L1 = 4;
++          int i_count_jnum_le_0  = 0;
++          int i_count_jnum_le_8  = 0;
++          int i_count_jnum_le_16 = 0;
++          int i_count_default    = 0;
++          int * __restrict__ i_list_jnum_le_0  = (int *) malloc((iito - iifrom + prefetch_iterations_L1 + prefetch_iterations_L2) * sizeof(int));
++          int * __restrict__ i_list_jnum_le_8  = (int *) malloc((iito - iifrom + prefetch_iterations_L1 + prefetch_iterations_L2) * sizeof(int));
++          int * __restrict__ i_list_jnum_le_16 = (int *) malloc((iito - iifrom + prefetch_iterations_L1 + prefetch_iterations_L2) * sizeof(int));
++          int * __restrict__ i_list_default    = (int *) malloc((iito - iifrom + prefetch_iterations_L1 + prefetch_iterations_L2) * sizeof(int));
++          acc_t * __restrict__ fxtmp_i = (acc_t *) malloc((iito - iifrom) * sizeof(acc_t));
++          acc_t * __restrict__ fytmp_i = (acc_t *) malloc((iito - iifrom) * sizeof(acc_t));
++          acc_t * __restrict__ fztmp_i = (acc_t *) malloc((iito - iifrom) * sizeof(acc_t));
++
++#pragma loop simd
++          for (int i=iifrom; i<iito; ++i) {
++              int jnum = numneigh[i];
++              if      (jnum <= 0)  i_list_jnum_le_0 [i_count_jnum_le_0 ++] = i;
++              else if (jnum <= 8)  i_list_jnum_le_8 [i_count_jnum_le_8 ++] = i;
++              else if (jnum <= 16) i_list_jnum_le_16[i_count_jnum_le_16++] = i;
++              else                 i_list_default   [i_count_default   ++] = i;
++          }
++
++          for (int i=0; i<(prefetch_iterations_L1 + prefetch_iterations_L2); ++i) i_list_default   [i_count_default    + i] = 0;
++          for (int i=0; i<(prefetch_iterations_L1 + prefetch_iterations_L2); ++i) i_list_jnum_le_16[i_count_jnum_le_16 + i] = i_list_default[i];
++          for (int i=0; i<(prefetch_iterations_L1 + prefetch_iterations_L2); ++i) i_list_jnum_le_8 [i_count_jnum_le_8  + i] = i_list_jnum_le_16[i];
++
++          for (int idx=0; idx<i_count_jnum_le_0; ++idx) {
++              int i = i_list_jnum_le_0[idx];
++              fxtmp_i[i] = fytmp_i[i] = fztmp_i[i] = 0.0;
++          }
++
++#pragma loop swp
++          for (int idx=0; idx<i_count_jnum_le_8; ++idx) {
++              const int i = i_list_jnum_le_8[idx];
++              const int i_L1pf = i_list_jnum_le_8[idx + prefetch_iterations_L1];
++              int itype, ptr_off;
++              const FC_PACKED1_T * _noalias ljc12oi;
++              const FC_PACKED2_T * _noalias lj34i;
++              if (!ONETYPE) {
++              itype = x[i].w;
++              ptr_off = itype * ntypes;
++              ljc12oi = ljc12o + ptr_off;
++              lj34i = lj34 + ptr_off;
++              }
++              const int * _noalias const jlist = firstneigh[i];
++              const int * _noalias const jlist_L1pf = firstneigh[i_L1pf];
++              int jnum = numneigh[i];
++              int jnum_L1pf = numneigh[i_L1pf];
++              IP_PRE_neighbor_pad(jnum, offload);
++
++              acc_t fxtmp, fytmp, fztmp, fwtmp;
++              acc_t sevdwl, sv0, sv1, sv2, sv3, sv4, sv5;
++
++              const flt_t xtmp = x[i].x;
++              const flt_t ytmp = x[i].y;
++              const flt_t ztmp = x[i].z;
++              fxtmp = fytmp = fztmp = (acc_t)0;
++              if (EFLAG) fwtmp = sevdwl = (acc_t)0;
++              if (NEWTON_PAIR == 0)
++                if (vflag==1) sv0 = sv1 = sv2 = sv3 = sv4 = sv5 = (acc_t)0;
++
++#pragma loop simd
++#pragma loop norecurrence
++#pragma loop nofullunroll_pre_simd
++#pragma loop unroll "full"
++              for (int jj = 0; jj < 8; jj++) {
++                  if (jj < jnum) {
++                      flt_t forcelj, evdwl;
++                      forcelj = evdwl = (flt_t)0.0;
++
++                      int j, jtype, sbindex;
++                      if (!ONETYPE) {
++                          sbindex = jlist[jj] >> SBBITS & 3;
++                          j = jlist[jj] & NEIGHMASK;
++                      } else
++                          j = jlist[jj];
++
++                      const flt_t delx = xtmp - x[j].x;
++                      const flt_t dely = ytmp - x[j].y;
++                      const flt_t delz = ztmp - x[j].z;
++                      if (!ONETYPE) {
++                      jtype = x[j].w;
++                      cutsq = ljc12oi[jtype].cutsq;
++                      }
++                      const flt_t rsq = delx * delx + dely * dely + delz * delz;
++
++                      if (rsq < cutsq) {
++                          flt_t factor_lj;
++                          if (!ONETYPE) factor_lj = special_lj[sbindex];
++                          flt_t r2inv = 1.0 / rsq;
++                          flt_t r6inv = r2inv * r2inv * r2inv;
++                          if (!ONETYPE) {
++                          lj1 = ljc12oi[jtype].lj1;
++                          lj2 = ljc12oi[jtype].lj2;
++                          }
++                          forcelj = r6inv * (lj1 * r6inv - lj2);
++                          flt_t fpair;
++                          if (!ONETYPE)
++                          fpair = factor_lj * forcelj * r2inv;
++                          else
++                          fpair = forcelj * r2inv;
++
++                          const flt_t fpx = fpair * delx;
++                          fxtmp += fpx;
++                          if (NEWTON_PAIR) f[j].x -= fpx;
++                          const flt_t fpy = fpair * dely;
++                          fytmp += fpy;
++                          if (NEWTON_PAIR) f[j].y -= fpy;
++                          const flt_t fpz = fpair * delz;
++                          fztmp += fpz;
++                          if (NEWTON_PAIR) f[j].z -= fpz;
++
++                          if (EFLAG) {
++                              if (!ONETYPE) {
++                                  lj3 = lj34i[jtype].lj3;
++                                  lj4 = lj34i[jtype].lj4;
++                                  offset = ljc12oi[jtype].offset;
++                              }
++                              evdwl = r6inv * (lj3 * r6inv - lj4);
++                              #ifdef INTEL_VMASK
++                              evdwl -= offset;
++                              #else
++                              if (rsq < cutsq) evdwl -= offset;
++                              #endif
++                              if (!ONETYPE) evdwl *= factor_lj;
++                              sevdwl += evdwl;
++                              if (eatom) {
++                                 fwtmp += (flt_t)0.5 * evdwl;
++                                 if (NEWTON_PAIR)
++                                    f[j].w += (flt_t)0.5 * evdwl;
++                              }
++                          } //EFLAG
++
++                          if (NEWTON_PAIR == 0)
++                             IP_PRE_ev_tally_nborv(vflag, delx, dely, delz, fpx, fpy, fpz);
++
++                      } //rsq
++                  } // (jj < jnum)
++                  if (jj < jnum_L1pf) {
++                    int j = jlist_L1pf[jj] & NEIGHMASK;
++                    __builtin_prefetch(&(x[j].w), 0/*read*/ , 3/*L1*/);
++                    __builtin_prefetch(&(f[j].x), 1/*write*/, 3/*L1*/);
++                  }
++              } // jj
++              if (NEWTON_PAIR) {
++                 //f[i].x += fxtmp;
++                 //f[i].y += fytmp;
++                 //f[i].z += fztmp;
++                 fxtmp_i[i - iifrom] = fxtmp;
++                 fytmp_i[i - iifrom] = fytmp;
++                 fztmp_i[i - iifrom] = fztmp;
++                 } else {
++                 f[i].x = fxtmp;
++                 f[i].y = fytmp;
++                 f[i].z = fztmp;
++              }    
++
++              IP_PRE_ev_tally_atom(NEWTON_PAIR, EFLAG, vflag, f, fwtmp);
++
++          } // idx i_count_jnum_le_8
++
++#pragma loop swp
++          for (int idx=0; idx<i_count_jnum_le_16; ++idx) {
++              const int i = i_list_jnum_le_16[idx];
++              const int i_L2pf   = i_list_jnum_le_16[idx + prefetch_iterations_L2];
++              const int i_L1pf   = i_list_jnum_le_16[idx + prefetch_iterations_L1];
++              const int i_L2pf_2 = i_list_jnum_le_16[idx + prefetch_iterations_L1 +  prefetch_iterations_L2];
++              const int i_L1pf_2 = i_list_jnum_le_16[idx + prefetch_iterations_L1 +  prefetch_iterations_L1];
++              int itype, ptr_off;
++              const FC_PACKED1_T * _noalias ljc12oi;
++              const FC_PACKED2_T * _noalias lj34i;
++              if (!ONETYPE) {
++              itype = x[i].w;
++              __builtin_prefetch(&(x[i_L2pf].w), 0/*read*/, 2/*L2*/);
++              __builtin_prefetch(&(x[i_L1pf].w), 0/*read*/, 3/*L1*/);
++              ptr_off = itype * ntypes;
++              ljc12oi = ljc12o + ptr_off;
++              lj34i = lj34 + ptr_off;
++              }
++              const int * _noalias const jlist = firstneigh[i];
++              const int * _noalias const jlist_L1pf = firstneigh[i_L1pf];
++              const int * _noalias const jlist_L2pf_2 = firstneigh[i_L2pf_2];
++              const int * _noalias const jlist_L1pf_2 = firstneigh[i_L1pf_2];
++              __builtin_prefetch(&(jlist_L2pf_2[0]), 0/*read*/, 2/*L2*/);
++              __builtin_prefetch(&(jlist_L1pf_2[0]), 0/*read*/, 3/*L1*/);
++              int jnum = numneigh[i];
++              const int jnum_L1pf = numneigh[i_L1pf];
++              IP_PRE_neighbor_pad(jnum, offload);
++
++              acc_t fxtmp, fytmp, fztmp, fwtmp;
++              acc_t sevdwl, sv0, sv1, sv2, sv3, sv4, sv5;
++
++              const flt_t xtmp = x[i].x;
++              const flt_t ytmp = x[i].y;
++              const flt_t ztmp = x[i].z;
++              fxtmp = fytmp = fztmp = (acc_t)0;
++              if (EFLAG) fwtmp = sevdwl = (acc_t)0;
++              if (NEWTON_PAIR == 0)
++                if (vflag==1) sv0 = sv1 = sv2 = sv3 = sv4 = sv5 = (acc_t)0;
++
++#pragma loop simd
++#pragma loop norecurrence
++#pragma loop nofullunroll_pre_simd
++#pragma loop unroll "full"
++              for (int jj = 0; jj < (16-8); jj++) {
++                  //if (jj < jnum) {
++                      flt_t forcelj, evdwl;
++                      forcelj = evdwl = (flt_t)0.0;
++
++                      int j, jtype, sbindex;
++                      if (!ONETYPE) {
++                          sbindex = jlist[jj] >> SBBITS & 3;
++                          j = jlist[jj] & NEIGHMASK;
++                      } else
++                          j = jlist[jj];
++
++                      const flt_t delx = xtmp - x[j].x;
++                      const flt_t dely = ytmp - x[j].y;
++                      const flt_t delz = ztmp - x[j].z;
++                      if (!ONETYPE) {
++                      jtype = x[j].w;
++                      cutsq = ljc12oi[jtype].cutsq;
++                      }
++                      const flt_t rsq = delx * delx + dely * dely + delz * delz;
++
++                      if (rsq < cutsq) {
++                          flt_t factor_lj;
++                          if (!ONETYPE) factor_lj = special_lj[sbindex];
++                          flt_t r2inv = 1.0 / rsq;
++                          flt_t r6inv = r2inv * r2inv * r2inv;
++                          if (!ONETYPE) {
++                          lj1 = ljc12oi[jtype].lj1;
++                          lj2 = ljc12oi[jtype].lj2;
++                          }
++                          forcelj = r6inv * (lj1 * r6inv - lj2);
++                          flt_t fpair;
++                          if (!ONETYPE)
++                          fpair = factor_lj * forcelj * r2inv;
++                          else
++                          fpair = forcelj * r2inv;
++
++                          const flt_t fpx = fpair * delx;
++                          fxtmp += fpx;
++                          if (NEWTON_PAIR) f[j].x -= fpx;
++                          const flt_t fpy = fpair * dely;
++                          fytmp += fpy;
++                          if (NEWTON_PAIR) f[j].y -= fpy;
++                          const flt_t fpz = fpair * delz;
++                          fztmp += fpz;
++                          if (NEWTON_PAIR) f[j].z -= fpz;
++
++                          if (EFLAG) {
++                              if (!ONETYPE) {
++                                  lj3 = lj34i[jtype].lj3;
++                                  lj4 = lj34i[jtype].lj4;
++                                  offset = ljc12oi[jtype].offset;
++                              }
++                              evdwl = r6inv * (lj3 * r6inv - lj4);
++                              #ifdef INTEL_VMASK
++                              evdwl -= offset;
++                              #else
++                              if (rsq < cutsq) evdwl -= offset;
++                              #endif
++                              if (!ONETYPE) evdwl *= factor_lj;
++                              sevdwl += evdwl;
++                              if (eatom) {
++                                 fwtmp += (flt_t)0.5 * evdwl;
++                                 if (NEWTON_PAIR)
++                                    f[j].w += (flt_t)0.5 * evdwl;
++                              }
++                          } //EFLAG
++
++                          if (NEWTON_PAIR == 0)
++                             IP_PRE_ev_tally_nborv(vflag, delx, dely, delz, fpx, fpy, fpz);
++
++                      } //rsq
++                  //} // (jj < jnum)
++                      j = jlist_L1pf[jj] & NEIGHMASK;
++                      __builtin_prefetch(&(x[j].w), 0/*read*/ , 3/*L1*/);
++                      __builtin_prefetch(&(f[j].x), 1/*write*/, 3/*L1*/);
++              } // jj
++
++#pragma loop simd
++#pragma loop norecurrence
++#pragma loop nofullunroll_pre_simd
++#pragma loop unroll "full"
++              for (int jj = (16-8); jj < 16; jj++) {
++                  if (jj < jnum) {
++                      flt_t forcelj, evdwl;
++                      forcelj = evdwl = (flt_t)0.0;
++
++                      int j, jtype, sbindex;
++                      if (!ONETYPE) {
++                          sbindex = jlist[jj] >> SBBITS & 3;
++                          j = jlist[jj] & NEIGHMASK;
++                      } else
++                          j = jlist[jj];
++
++                      const flt_t delx = xtmp - x[j].x;
++                      const flt_t dely = ytmp - x[j].y;
++                      const flt_t delz = ztmp - x[j].z;
++                      if (!ONETYPE) {
++                      jtype = x[j].w;
++                      cutsq = ljc12oi[jtype].cutsq;
++                      }
++                      const flt_t rsq = delx * delx + dely * dely + delz * delz;
++
++                      if (rsq < cutsq) {
++                          flt_t factor_lj;
++                          if (!ONETYPE) factor_lj = special_lj[sbindex];
++                          flt_t r2inv = 1.0 / rsq;
++                          flt_t r6inv = r2inv * r2inv * r2inv;
++                          if (!ONETYPE) {
++                          lj1 = ljc12oi[jtype].lj1;
++                          lj2 = ljc12oi[jtype].lj2;
++                          }
++                          forcelj = r6inv * (lj1 * r6inv - lj2);
++                          flt_t fpair;
++                          if (!ONETYPE)
++                          fpair = factor_lj * forcelj * r2inv;
++                          else
++                          fpair = forcelj * r2inv;
++
++                          const flt_t fpx = fpair * delx;
++                          fxtmp += fpx;
++                          if (NEWTON_PAIR) f[j].x -= fpx;
++                          const flt_t fpy = fpair * dely;
++                          fytmp += fpy;
++                          if (NEWTON_PAIR) f[j].y -= fpy;
++                          const flt_t fpz = fpair * delz;
++                          fztmp += fpz;
++                          if (NEWTON_PAIR) f[j].z -= fpz;
++
++                          if (EFLAG) {
++                              if (!ONETYPE) {
++                                  lj3 = lj34i[jtype].lj3;
++                                  lj4 = lj34i[jtype].lj4;
++                                  offset = ljc12oi[jtype].offset;
++                              }
++                              evdwl = r6inv * (lj3 * r6inv - lj4);
++                              #ifdef INTEL_VMASK
++                              evdwl -= offset;
++                              #else
++                              if (rsq < cutsq) evdwl -= offset;
++                              #endif
++                              if (!ONETYPE) evdwl *= factor_lj;
++                              sevdwl += evdwl;
++                              if (eatom) {
++                                 fwtmp += (flt_t)0.5 * evdwl;
++                                 if (NEWTON_PAIR)
++                                    f[j].w += (flt_t)0.5 * evdwl;
++                              }
++                          } //EFLAG
++
++                          if (NEWTON_PAIR == 0)
++                             IP_PRE_ev_tally_nborv(vflag, delx, dely, delz, fpx, fpy, fpz);
++
++                      } //rsq
++                  } // (jj < jnum)
++                  if (jj < jnum_L1pf) {
++                      int j = jlist_L1pf[jj] & NEIGHMASK;
++                      __builtin_prefetch(&(x[j].w), 0/*read*/ , 3/*L1*/);
++                      __builtin_prefetch(&(f[j].x), 1/*write*/, 3/*L1*/);
++                  }
++              } // jj 
++              if (NEWTON_PAIR) {
++                 //f[i].x += fxtmp;
++                 //f[i].y += fytmp;
++                 //f[i].z += fztmp;
++                 fxtmp_i[i - iifrom] = fxtmp;
++                 fytmp_i[i - iifrom] = fytmp;
++                 fztmp_i[i - iifrom] = fztmp;
++                 } else {
++                 f[i].x = fxtmp;
++                 f[i].y = fytmp;
++                 f[i].z = fztmp;
++              }    
++              __builtin_prefetch(&(fxtmp_i[i_L2pf - iifrom]), 1/*write*/, 2/*L2*/);
++              __builtin_prefetch(&(fytmp_i[i_L2pf - iifrom]), 1/*write*/, 2/*L2*/);
++              __builtin_prefetch(&(fztmp_i[i_L2pf - iifrom]), 1/*write*/, 2/*L2*/);
++              __builtin_prefetch(&(fxtmp_i[i_L1pf - iifrom]), 1/*write*/, 3/*L1*/);
++              __builtin_prefetch(&(fytmp_i[i_L1pf - iifrom]), 1/*write*/, 3/*L1*/);
++              __builtin_prefetch(&(fztmp_i[i_L1pf - iifrom]), 1/*write*/, 3/*L1*/);
++
++              IP_PRE_ev_tally_atom(NEWTON_PAIR, EFLAG, vflag, f, fwtmp);
++
++          } // idx i_count_jnum_le_16
++
++#pragma loop swp
++          for (int idx=0; idx<i_count_default; ++idx) {
++              const int i = i_list_default[idx];
++              int itype, ptr_off;
++              const FC_PACKED1_T * _noalias ljc12oi;
++              const FC_PACKED2_T * _noalias lj34i;
++              if (!ONETYPE) {
++              itype = x[i].w;
++              ptr_off = itype * ntypes;
++              ljc12oi = ljc12o + ptr_off;
++              lj34i = lj34 + ptr_off;
++              }
++              const int * _noalias const jlist = firstneigh[i];
++              int jnum = numneigh[i];
++              IP_PRE_neighbor_pad(jnum, offload);
++
++              acc_t fxtmp, fytmp, fztmp, fwtmp;
++              acc_t sevdwl, sv0, sv1, sv2, sv3, sv4, sv5;
++
++              const flt_t xtmp = x[i].x;
++              const flt_t ytmp = x[i].y;
++              const flt_t ztmp = x[i].z;
++              fxtmp = fytmp = fztmp = (acc_t)0;
++              if (EFLAG) fwtmp = sevdwl = (acc_t)0;
++              if (NEWTON_PAIR == 0)
++                if (vflag==1) sv0 = sv1 = sv2 = sv3 = sv4 = sv5 = (acc_t)0;
++
++#pragma loop simd
++#pragma loop norecurrence
++#pragma loop nofullunroll_pre_simd
++#pragma loop unroll "full"
++              for (int jj = 0; jj < jnum; jj++) {
++                  if (jj < jnum) {
++                      flt_t forcelj, evdwl;
++                      forcelj = evdwl = (flt_t)0.0;
++
++                      int j, jtype, sbindex;
++                      if (!ONETYPE) {
++                          sbindex = jlist[jj] >> SBBITS & 3;
++                          j = jlist[jj] & NEIGHMASK;
++                      } else
++                          j = jlist[jj];
++
++                      const flt_t delx = xtmp - x[j].x;
++                      const flt_t dely = ytmp - x[j].y;
++                      const flt_t delz = ztmp - x[j].z;
++                      if (!ONETYPE) {
++                      jtype = x[j].w;
++                      cutsq = ljc12oi[jtype].cutsq;
++                      }
++                      const flt_t rsq = delx * delx + dely * dely + delz * delz;
++
++                      if (rsq < cutsq) {
++                          flt_t factor_lj;
++                          if (!ONETYPE) factor_lj = special_lj[sbindex];
++                          flt_t r2inv = 1.0 / rsq;
++                          flt_t r6inv = r2inv * r2inv * r2inv;
++                          if (!ONETYPE) {
++                          lj1 = ljc12oi[jtype].lj1;
++                          lj2 = ljc12oi[jtype].lj2;
++                          }
++                          forcelj = r6inv * (lj1 * r6inv - lj2);
++                          flt_t fpair;
++                          if (!ONETYPE)
++                          fpair = factor_lj * forcelj * r2inv;
++                          else
++                          fpair = forcelj * r2inv;
++
++                          const flt_t fpx = fpair * delx;
++                          fxtmp += fpx;
++                          if (NEWTON_PAIR) f[j].x -= fpx;
++                          const flt_t fpy = fpair * dely;
++                          fytmp += fpy;
++                          if (NEWTON_PAIR) f[j].y -= fpy;
++                          const flt_t fpz = fpair * delz;
++                          fztmp += fpz;
++                          if (NEWTON_PAIR) f[j].z -= fpz;
++
++                          if (EFLAG) {
++                              if (!ONETYPE) {
++                                  lj3 = lj34i[jtype].lj3;
++                                  lj4 = lj34i[jtype].lj4;
++                                  offset = ljc12oi[jtype].offset;
++                              }
++                              evdwl = r6inv * (lj3 * r6inv - lj4);
++                              #ifdef INTEL_VMASK
++                              evdwl -= offset;
++                              #else
++                              if (rsq < cutsq) evdwl -= offset;
++                              #endif
++                              if (!ONETYPE) evdwl *= factor_lj;
++                              sevdwl += evdwl;
++                              if (eatom) {
++                                 fwtmp += (flt_t)0.5 * evdwl;
++                                 if (NEWTON_PAIR)
++                                    f[j].w += (flt_t)0.5 * evdwl;
++                              }
++                          } //EFLAG
++
++                          if (NEWTON_PAIR == 0)
++                             IP_PRE_ev_tally_nborv(vflag, delx, dely, delz, fpx, fpy, fpz);
++
++                      } //rsq
++                  } // (jj < jnum)
++              } // jj
++              if (NEWTON_PAIR) {
++                 //f[i].x += fxtmp;
++                 //f[i].y += fytmp;
++                 //f[i].z += fztmp;
++                 fxtmp_i[i - iifrom] = fxtmp;
++                 fytmp_i[i - iifrom] = fytmp;
++                 fztmp_i[i - iifrom] = fztmp;
++                 } else {
++                 f[i].x = fxtmp;
++                 f[i].y = fytmp;
++                 f[i].z = fztmp;
++              }    
++
++              IP_PRE_ev_tally_atom(NEWTON_PAIR, EFLAG, vflag, f, fwtmp);
++
++          } // idx i_count_default
++
++#pragma loop simd
++#pragma loop norecurrence
++          for (int i = iifrom; i < iito; ++i) {
++              f[i].x += fxtmp_i[i - iifrom];
++              f[i].y += fytmp_i[i - iifrom];
++              f[i].z += fztmp_i[i - iifrom];
++          }
++
++          free(i_list_jnum_le_0);
++          free(i_list_jnum_le_8);
++          free(i_list_jnum_le_16);
++          free(i_list_default);
++
++      } // (iifrom < iito)
++// Fujitsu 2021/07/20 Add <<
++
++// Fujitsu 2021/07/20 Mod >>
++/*
++        for (int ii = iifrom; ii < iito; ii += iip) {
+         const int i = ilist[ii];
+         int itype, ptr_off;
+         const FC_PACKED1_T * _noalias ljc12oi;
+@@ -330,12 +861,12 @@
+ 
+         IP_PRE_ev_tally_atom(NEWTON_PAIR, EFLAG, vflag, f, fwtmp);
+       } // for ii
+-
++*/
++// Fujitsu 2021/07/20 Mod <<
+       IP_PRE_fdotr_reduce_omp(NEWTON_PAIR, nall, minlocal, nthreads, f_start,
+                               f_stride, x, offload, vflag, ov0, ov1, ov2, ov3,
+                               ov4, ov5);
+     } // end omp
+-
+     IP_PRE_fdotr_reduce(NEWTON_PAIR, nall, nthreads, f_stride, vflag,
+                         ov0, ov1, ov2, ov3, ov4, ov5);
+ 
