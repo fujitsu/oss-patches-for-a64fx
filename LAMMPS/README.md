@@ -119,7 +119,7 @@ You can see the tuning details for CHAIN and LJ in [here](https://www.hpci-offic
   #IN="-in in.chain.scaled"
   #IN="-in in.lj"
 
-  mpiexec ${LD} ${ARG}
+  mpiexec ${LD} ${IN}
   ===
   $ vi in.chute.scaled
     - Change variable x and y from 1 to 20
