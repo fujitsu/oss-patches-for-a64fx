@@ -54,6 +54,7 @@ spack load --only package [appname]
 This is because Spack sets LD_LIBRARY_PATH to user-built zlib and makes mpiexec linked with it, while mpiexec of FUJITSU Software Compiler Package or Fujitsu Development Studio must be linked with system zlib.
 
 ## Examples
+Following examples were tested around March 2021. Since Spack is being updated daily, it is not guaranteed that they work properly in current version.
 
 ### yaml files settings
 
