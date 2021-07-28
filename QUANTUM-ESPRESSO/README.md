@@ -23,7 +23,7 @@ The followings are build procedure by Fujitsu cross compiler.
 - FFTW 3.3.8 for AArch64
   - https://github.com/fujitsu/fftw3
 - elpa-2016.11.001.pre
-  - https://github.com/fujitsu/elpa
+  - https://github.com/fujitsu/elpa (ELPA 2016.11.001.pre. is not available now. Please download the archive file [here](https://github.com/fujitsu/oss-patches-for-a64fx/wiki/elpa-2016.11.001.pre.tar.gz).)
 - FUJITSU Software Compiler Package or Fujitsu Development Studio
 
 
