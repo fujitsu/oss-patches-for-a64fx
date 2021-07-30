@@ -1,6 +1,6 @@
 diff -Naur src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3 src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3
 --- src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	1970-01-01 09:00:00.000000000 +0900
-+++ src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	2021-07-20 16:47:25.000000000 +0900
++++ src/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3	2021-07-30 08:22:38.000000000 +0900
 @@ -0,0 +1,128 @@
 +# g++_openmpi = OpenMPI with compiler set to GNU g++
 +
@@ -132,7 +132,7 @@ diff -Naur src-00orig/MAKE/OPTIONS/Makefile.fj_fjmpi_clang_O3 src/MAKE/OPTIONS/M
 +sinclude .depend
 diff -Naur src-00orig/compile.sh src/compile.sh
 --- src-00orig/compile.sh	1970-01-01 09:00:00.000000000 +0900
-+++ src/compile.sh	2021-07-20 20:26:46.000000000 +0900
++++ src/compile.sh	2021-07-30 08:22:38.000000000 +0900
 @@ -0,0 +1,16 @@
 +#!/bin/bash -x
 +
@@ -150,9 +150,41 @@ diff -Naur src-00orig/compile.sh src/compile.sh
 +time -p make fj_fjmpi_clang_O3
 +
 +exit
+diff -Naur src-00orig/npair_intel.cpp src/npair_intel.cpp
+--- src-00orig/npair_intel.cpp	2021-07-21 11:01:05.000000000 +0900
++++ src/npair_intel.cpp	2021-07-30 08:13:57.000000000 +0900
+@@ -359,8 +359,12 @@
+             tjtype[u] = x[j].w;
+             if (THREE) ttag[u] = tag[j];
+           }
+-
+-          if (FULL == 0 || TRI == 1) {
++// Fujitsu 2021/07/20 Mod >>
++// Bug fix for USER-INTEL package. #1813
++// https://github.com/lammps/lammps/pull/1813
++//        if (FULL == 0 || TRI == 1) {
++          if (FULL == 0 && TRI != 1) {
++// Fujitsu 2021/07/20 Mod <<
+             icount = 0;
+             istart = ncount;
+             IP_PRE_edge_align(istart, sizeof(int));
+@@ -392,7 +396,12 @@
+         // ---------------------- Loop over i bin
+ 
+         int n = 0;
+-        if (FULL == 0 || TRI == 1) {
++// Fujitsu 2021/07/20 Mod >>
++// Bug fix for USER-INTEL package. #1813      
++// https://github.com/lammps/lammps/pull/1813 
++//        if (FULL == 0 || TRI == 1) {
++          if (FULL == 0 && TRI != 1) {
++// Fujitsu 2021/07/20 Mod <<
+           #if defined(LMP_SIMD_COMPILER)
+           #pragma vector aligned
+           #pragma ivdep
 diff -Naur src-00orig/pair_lj_cut_intel.cpp src/pair_lj_cut_intel.cpp
---- src-00orig/pair_lj_cut_intel.cpp	2021-07-20 17:43:12.000000000 +0900
-+++ src/pair_lj_cut_intel.cpp	2021-07-20 20:26:07.000000000 +0900
+--- src-00orig/pair_lj_cut_intel.cpp	2021-07-21 11:01:05.000000000 +0900
++++ src/pair_lj_cut_intel.cpp	2021-07-30 08:22:38.000000000 +0900
 @@ -240,6 +240,9 @@
          #pragma simd reduction(+:fxtmp, fytmp, fztmp, fwtmp, sevdwl, \
                                 sv0, sv1, sv2, sv3, sv4, sv5)
