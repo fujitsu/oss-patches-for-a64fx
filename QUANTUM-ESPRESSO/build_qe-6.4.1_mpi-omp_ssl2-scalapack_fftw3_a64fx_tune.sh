@@ -65,7 +65,7 @@ cd ${BUILD_DIR}
 # build post-configuration
 # -----------------------------------------------------------------------------
 ./configure ARCH=aarch64 \
-  DFLAGS="-D__FFTW3 -D__MPI -D__SCALAPACK -D_OPENMP -I${FFTW3_LIB}/include -D__ELPA -D__ELPA_2016"
+  DFLAGS="-D__FFTW3 -D__FFTW3_PLANFLAG_MEASURE -D__MPI -D__SCALAPACK -D_OPENMP -I${FFTW3_LIB}/include -D__ELPA -D__ELPA_2016"
   MPIF90="mpifrtpx" F90="frtpx" F77="frtpx" CC="fccpx" \
   FFLAGS="-Kocl -Kregion_extension -Knolargepage -Kfast -Kopenmp -Koptmsg=2 -Nlst=t -I${FFTW3_LIB}/include" \
   F90FLAGS="-Cpp -Kocl -Kregion_extension -Knolargepage -Kfast -Kopenmp -Koptmsg=2 -Nlst=t -I${FFTW3_LIB}/include" \
