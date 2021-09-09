@@ -138,8 +138,8 @@ source etc/bashrc
 ```
 cd platforms/
 mkdir -p linuxARM64FccDPInt32Opt/lib/ linuxARM64FccDPInt32Opt/bin/
-cp -p linux64FccDPInt32Opt/lib/* linuxARM64FccDPInt32Opt/lib/
-cp -p linux64FccDPInt32Opt/bin/* linuxARM64FccDPInt32Opt/bin/
+cp -pr linux64FccDPInt32Opt/lib/* linuxARM64FccDPInt32Opt/lib/
+cp -pr linux64FccDPInt32Opt/bin/* linuxARM64FccDPInt32Opt/bin/
 rm -r linux64FccDPInt32Opt/
 ```
 
