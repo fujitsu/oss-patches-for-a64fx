@@ -155,6 +155,25 @@ After that, each module of OpenFOAM becomes executable.
 
 Reference: [OpenFOAM tutorial-guide](https://www.openfoam.com/documentation/tutorial-guide/)
 
+## Known Issues
+
+This patch includes some compile options with speeding up and side effects. Modules that we have not confirmed the execution may affect the result. The modules whose operation has been confirmed are as follows.
+
+- modules : pimpleFoam, chtMultiRegionFoam
+
+If you get an unexpected run-time error, try lowering the optimization level and starting over from build. To reduce the optimization level down, edit the cOpt and c++Opt.
+
+For example:
+- cOpt = -Nclang -O3 -march=armv8.3-a+sve
+- c++OPT = -Nclang -std=gnu++11 --verbose -ffj-largepage -O3 -stdlib=libstdc++ -march=armv8.3-a+sve
+
+The location of the file to be edited differs between native compile and cross compile.
+
+- native compile
+  - OpenFOAM-v1812/wmake/rules/linuxARM64Fcc/
+- cross compile
+  - OpenFOAM-v1812/wmake/rules/linux64Fcc/
+
 
 ## License
 
