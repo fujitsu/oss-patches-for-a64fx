@@ -39,21 +39,16 @@ The followings are build procedure by Fujitsu cross compiler.
 
 2. Build QUANTUM ESPRESSO 6.4.1
 
-	- "as is"
-
-		```
-		./build_qe-6.4.1_mpi-omp_ssl2-scalapack_fftw3_a64fx.sh
-		```
-
-	- "tuned"
-
-		```
-		./build_qe-6.4.1_mpi-omp_ssl2-scalapack_fftw3_a64fx_tune.sh
-		```
+	./build_qe-6.4.1_mpi-omp_ssl2-scalapack_fftw3_a64fx_tune.sh
+	
+	
 ## Notes
-In our benchmarks, we have seen a slight speedup when using the sve-dev branch of fftw3.
+In our benchmarks, we have seen a slight speedup when using the sve-dev branch of FFTW3.
 - https://github.com/fujitsu/fftw3/tree/sve-dev
-- If you use the sve-dev branch, the fftw3 must be built with the option to specify double precision. See the fujitsu/fftw3 pages for detail.
+- If you use the sve-dev branch, the FFTW3 must be built with the option to specify double precision. See the fujitsu/fftw3 pages for detail.
+
+An execution of QUANTUM-ESPRESSO sometimes ends abnormally depending on linked libraries such as SSL2, FFTW3 and ELPA.
+If unexpected errors occur, you have to change combination of the linked libraries.  
 
 ## License
 
