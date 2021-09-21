@@ -43,13 +43,15 @@ The followings are build procedure by Fujitsu cross compiler.
 	
 	
 ## Notes
-In our benchmarks, we have seen a slight speedup when using the sve-dev branch of FFTW3.
-- https://github.com/fujitsu/fftw3/tree/sve-dev
-- If you use the sve-dev branch, the FFTW3 must be built with the option to specify double precision. See the fujitsu/fftw3 pages for detail.
 
-An execution of QUANTUM-ESPRESSO sometimes ends abnormally depending on linked libraries such as SSL2, FFTW3 and ELPA.
-If unexpected errors occur, you have to change combination of the linked libraries.  
+- Speeding up FFTW3 with neon option
 
+  In our benchmarks, we have seen a slight speedup when using the sve-dev branch of FFTW3 optimized by using neon instructions.
+  - https://github.com/fujitsu/fftw3/tree/sve-dev
+  - If you use the sve-dev branch, this FFTW3 must be built with the option to specify double precision. See the fujitsu/fftw3 pages for detail.
+- Avoiding errors by changing linked libraries
+  - If you encounter unexpected run-time errors, you may be able to resolve it by changing linked libraries such as SSL2, FFTW3 and ELPA.
+  
 ## License
 
 The contents in this directory are distributed under GPLv2 .
