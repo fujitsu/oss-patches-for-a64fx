@@ -39,9 +39,11 @@ The followings are build procedure by Fujitsu cross compiler.
 
 2. Build QUANTUM ESPRESSO 6.4.1
 
+	```
 	./build_qe-6.4.1_mpi-omp_ssl2-scalapack_fftw3_a64fx_tune.sh
-	
-	
+	```
+
+
 ## Notes
 
 - Speeding up FFTW3 with neon option
