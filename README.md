@@ -11,6 +11,7 @@ Please refer to the directory of each application for details.
 - OpenFOAM
 - Quantum Espresso
 - SPECFEM3D
+- Nemo(patches only)
 
 ## Build applications with spack
 
